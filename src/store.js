@@ -155,8 +155,13 @@ class SupabaseStore {
 
 function createStore(env) {
   if (env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
+    console.log('儲存後端：Supabase');
     return new SupabaseStore(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
   }
+  // 在 Render 免費版上磁碟不持久，重新部署或重啟就會掉資料，只能當本機測試用。
+  console.warn(env.SUPABASE_URL
+    ? '⚠️ 有 SUPABASE_URL 但缺 SUPABASE_SERVICE_ROLE_KEY，暫時改用本機檔案儲存（重啟會掉資料）'
+    : '⚠️ 未設定 Supabase，使用本機檔案儲存 data/registrations.json（重啟會掉資料）');
   return new JsonStore(path.join(__dirname, '..', 'data', 'registrations.json'));
 }
 
