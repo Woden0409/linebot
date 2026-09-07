@@ -46,6 +46,15 @@ curl -H "Authorization: Bearer $LINE_CHANNEL_ACCESS_TOKEN" https://api.line.me/v
 curl -H "Authorization: Bearer $LINE_CHANNEL_ACCESS_TOKEN" https://api.line.me/v2/bot/message/quota/consumption
 ```
 
+## 目前部署
+
+| 項目 | 位置 |
+| --- | --- |
+| 服務網址 | https://line-weekly-game-bot.onrender.com |
+| Render | workspace `My Workspace`，service `line-weekly-game-bot`（free / Singapore） |
+| Supabase | 專案 `omni-cart-core`（ap-northeast-1），資料表 `linebot_registrations`、`linebot_announcements` |
+| Webhook URL | https://line-weekly-game-bot.onrender.com/webhook |
+
 ## 部署（Render 免費版 + Supabase 免費版）
 
 Render 免費版磁碟不持久、15 分鐘沒流量會休眠，所以資料存 Supabase，並用外部排程保活。
@@ -69,8 +78,8 @@ Render 免費版磁碟不持久、15 分鐘沒流量會休眠，所以資料存 
 
 | 用途 | 網址 | 排程（台北時間） |
 | --- | --- | --- |
-| 保活，避免休眠冷啟動 | `https://你的網域/health` | 每 10 分鐘 |
-| 每週結算＋推播名單 | `https://你的網域/tasks/close?key=你的TASK_KEY` | 每週一 **12:05** |
+| 保活，避免休眠冷啟動 | `https://line-weekly-game-bot.onrender.com/health` | 每 10 分鐘 |
+| 每週結算＋推播名單 | `https://line-weekly-game-bot.onrender.com/tasks/close?key=你的TASK_KEY` | 每週一 **12:05** |
 
 > 結算排在 12:05 而不是 12:00，是避免排程稍微提早觸發時抓不到剛截止的場次。
 > 這個端點是**冪等**的：同一場重複呼叫只會推播一次。
@@ -81,17 +90,17 @@ Render 免費版磁碟不持久、15 分鐘沒流量會休眠，所以資料存 
 
 1. Messaging API 頁面開啟 **Allow bot to join group chats**。
 2. 關閉 LINE Official Account Manager 的自動回應，避免一則訊息被回兩次。
-3. Webhook URL 設為 `https://你的網域/webhook`，Verify 後啟用 **Use webhook**。
+3. Webhook URL 設為 `https://line-weekly-game-bot.onrender.com/webhook`，Verify 後啟用 **Use webhook**。
 4. 把官方帳號邀請進 LINE 群組。
 
 ## 手動操作
 
 ```bash
 # 手動結算指定日期的場次（會推播，會扣額度）
-curl "https://你的網域/tasks/close?key=你的TASK_KEY&date=2026-09-08"
+curl "https://line-weekly-game-bot.onrender.com/tasks/close?key=你的TASK_KEY&date=2026-09-08"
 
 # 看服務狀態與目前開放的場次
-curl https://你的網域/health
+curl https://line-weekly-game-bot.onrender.com/health
 ```
 
 ## 本機開發
