@@ -54,6 +54,8 @@ curl -H "Authorization: Bearer $LINE_CHANNEL_ACCESS_TOKEN" https://api.line.me/v
 | Render | workspace `My Workspace`，service `line-weekly-game-bot`（free / Singapore） |
 | Supabase | 專案 `omni-cart-core`（ap-northeast-1），資料表 `linebot_registrations`、`linebot_announcements` |
 | Webhook URL | https://line-weekly-game-bot.onrender.com/webhook |
+| 保活時段 | 台北 08:00–23:00（約 465 instance 小時／月，上限 750 由整個 workspace 共用） |
+| 排程 | GitHub Actions：`keepalive.yml`（每 10 分鐘）、`weekly-close.yml`（週一 12:05 台北） |
 
 ## 部署（Render 免費版 + Supabase 免費版）
 
@@ -72,19 +74,39 @@ Render 免費版磁碟不持久、15 分鐘沒流量會休眠，所以資料存 
    node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
    ```
 
-### 3. 外部排程（cron-job.org 免費）
+### 3. 休眠與排程（GitHub Actions，免費）
 
-建兩個 job：
+Render 免費版**閒置 15 分鐘就休眠，喚醒約 1 分鐘**，而 LINE 的 **reply token 只有 1 分鐘有效** ——
+睡著時收到的報名很可能回不了話。所以要保活。
 
-| 用途 | 網址 | 排程（台北時間） |
+但 **750 免費 instance 小時是整個 Render workspace 共用的**（本帳號的 `pharmacy-chain` 也在用），
+24 小時不休眠一個月要 744 小時，會把額度吃光 → **所有免費 web service 一起被停用到下個月**。
+
+因此採「時段式保活」：只在台北 **08:00–23:00** 保持喚醒，約 **465 小時／月**，留約 285 小時給其他服務。
+深夜報名只會遇到一次約 1 分鐘的冷啟動延遲。
+
+兩道保險同時運作：
+
+| 機制 | 設定 | 說明 |
 | --- | --- | --- |
-| 保活，避免休眠冷啟動 | `https://line-weekly-game-bot.onrender.com/health` | 每 10 分鐘 |
-| 每週結算＋推播名單 | `https://line-weekly-game-bot.onrender.com/tasks/close?key=你的TASK_KEY` | 每週一 **12:05** |
+| GitHub Actions `keepalive.yml` | `*/10 0-14 * * *`（UTC）= 台北 08:00–22:50 每 10 分鐘 | 能**喚醒**已休眠的服務。公開 repo 的 Actions 分鐘數免費無上限 |
+| 服務自我 ping `src/keepalive.js` | 每 10 分鐘，`AWAKE_FROM_HOUR`～`AWAKE_TO_HOUR` | 補上 GitHub 排程延遲的空隙；服務睡著時無法自救，所以需要上面那個 |
 
-> 結算排在 12:05 而不是 12:00，是避免排程稍微提早觸發時抓不到剛截止的場次。
-> 這個端點是**冪等**的：同一場重複呼叫只會推播一次。
+每週結算由 `weekly-close.yml` 負責，cron `5 4 * * 1`（UTC）= **每週一 12:05 台北時間**，
+`TASK_KEY` 存在 repo secret。端點是冪等的，所以 GitHub 排程延遲不影響正確性。
 
-保活 job 每 10 分鐘一次 ≈ 每月 4400 次請求，Render 免費版 750 小時／月剛好夠單一服務全天候運作。
+手動觸發（例如臨時要重新結算）：
+
+```bash
+gh workflow run weekly-close.yml --repo TechShinchitose/linebot -f date=2026-09-08
+gh workflow run keepalive.yml --repo TechShinchitose/linebot
+```
+
+> ⚠️ GitHub 會在 repo **連續 60 天沒有 commit** 時自動停用排程 workflow（會先寄信通知）。
+> 收到通知時到 Actions 頁面按 enable，或隨便推一個 commit 即可。
+
+要改保活時段，調整 Render 的 `AWAKE_FROM_HOUR` / `AWAKE_TO_HOUR`，
+並同步改 `.github/workflows/keepalive.yml` 的 cron（**GitHub cron 只吃 UTC**，台北時間要減 8 小時）。
 
 ### 4. LINE Developers
 
@@ -120,3 +142,5 @@ npm test
 | `src/bot.js` | 指令解析與訊息排版 |
 | `src/store.js` | `JsonStore`（本機）與 `SupabaseStore`（正式），介面相同 |
 | `src/server.js` | webhook、`/health`、`/tasks/close`、額度保護 |
+| `src/keepalive.js` | 時段式自我保活 |
+| `.github/workflows/` | 保活與每週結算排程 |
