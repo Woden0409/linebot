@@ -1,0 +1,21 @@
+name: keepalive
+
+# Render 免費版閒置 15 分鐘就休眠，喚醒約 1 分鐘，而 LINE 的 reply token 只有 1 分鐘有效。
+# 但 750 免費小時是整個 Render workspace 共用的，24 小時不休眠一個月要 744 小時會把額度吃光，
+# 所以只在台北 08:00–23:00（= UTC 00:00–15:00）保持喚醒，約 465 小時／月。
+on:
+  schedule:
+    - cron: '*/10 0-14 * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 喚醒服務
+        run: |
+          curl --silent --show-error --fail \
+               --retry 3 --retry-delay 20 --retry-all-errors \
+               --max-time 120 \
+               https://line-weekly-game-bot.onrender.com/health

@@ -3,6 +3,7 @@ const crypto = require('node:crypto');
 const { createStore } = require('./store');
 const { resolveCycle, formatEventDate } = require('./schedule');
 const { handleText, formatList, help } = require('./bot');
+const { startKeepAlive } = require('./keepalive');
 
 const config = {
   port: Number(process.env.PORT || 3000),
@@ -15,7 +16,10 @@ const config = {
   deadlineHour: Number(process.env.DEADLINE_HOUR || 12),
   taskKey: process.env.TASK_KEY,
   pushAnnounce: process.env.PUSH_ANNOUNCE !== 'false',
-  quotaReserve: Number(process.env.QUOTA_RESERVE || 40)
+  quotaReserve: Number(process.env.QUOTA_RESERVE || 40),
+  selfUrl: process.env.SELF_URL,
+  awakeFromHour: Number(process.env.AWAKE_FROM_HOUR || 8),
+  awakeToHour: Number(process.env.AWAKE_TO_HOUR || 23)
 };
 
 const store = createStore(process.env);
@@ -189,7 +193,15 @@ const server = http.createServer((request, response) => {
 if (require.main === module) {
   if (!config.channelSecret || !config.accessToken) console.warn('尚未設定 LINE_CHANNEL_SECRET 或 LINE_CHANNEL_ACCESS_TOKEN');
   if (!config.taskKey) console.warn('尚未設定 TASK_KEY，每週結算端點 /tasks/close 將無法使用');
-  server.listen(config.port, () => console.log(`LINE bot listening on ${config.port}（活動日=週${config.gameWeekday}，截止=前 ${config.deadlineDaysBefore} 天 ${config.deadlineHour}:00 ${config.timeZone}）`));
+  server.listen(config.port, () => {
+    console.log(`LINE bot listening on ${config.port}（活動日=週${config.gameWeekday}，截止=前 ${config.deadlineDaysBefore} 天 ${config.deadlineHour}:00 ${config.timeZone}）`);
+    startKeepAlive({
+      selfUrl: config.selfUrl,
+      timeZone: config.timeZone,
+      fromHour: config.awakeFromHour,
+      toHour: config.awakeToHour
+    });
+  });
 }
 
 module.exports = { server, store, verifySignature, closeAndAnnounce, config };
