@@ -1,0 +1,15 @@
+{
+  "name": "line-weekly-game-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "LINE group bot for weekly game registration",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

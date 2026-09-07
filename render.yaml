@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: line-weekly-game-bot
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: MAX_PLAYERS
+        value: "21"
+      - key: GAME_WEEKDAY
+        value: "2"
+      - key: DEADLINE_DAYS_BEFORE
+        value: "1"
+      - key: DEADLINE_HOUR
+        value: "12"
+      - key: TIME_ZONE
+        value: Asia/Taipei
+      - key: PUSH_ANNOUNCE
+        value: "true"
+      - key: QUOTA_RESERVE
+        value: "40"
+      # 以下四個請在 Render 主控台手動填入，不要進版控
+      - key: LINE_CHANNEL_SECRET
+        sync: false
+      - key: LINE_CHANNEL_ACCESS_TOKEN
+        sync: false
+      - key: TASK_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
