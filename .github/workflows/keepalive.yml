@@ -1,8 +1,11 @@
 name: keepalive
 
 # Render 免費版閒置 15 分鐘就休眠，喚醒約 1 分鐘，而 LINE 的 reply token 只有 1 分鐘有效。
-# 但 750 免費小時是整個 Render workspace 共用的，24 小時不休眠一個月要 744 小時會把額度吃光，
+# 但 750 免費 instance 小時是整個 Render workspace 共用的，24 小時不休眠一個月要 744 小時，
 # 所以只在台北 08:00–23:00（= UTC 00:00–15:00）保持喚醒，約 465 小時／月。
+#
+# 服務網址放在 repo variable SERVICE_URL（Settings → Secrets and variables → Actions → Variables），
+# 換部署位置時只要改那一個值，不用動這個檔案。
 on:
   schedule:
     - cron: '*/10 0-14 * * *'
@@ -14,8 +17,14 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: 喚醒服務
+        env:
+          SERVICE_URL: ${{ vars.SERVICE_URL }}
         run: |
+          if [ -z "$SERVICE_URL" ]; then
+            echo "::error::缺少 repo variable SERVICE_URL"
+            exit 1
+          fi
           curl --silent --show-error --fail \
                --retry 3 --retry-delay 20 --retry-all-errors \
                --max-time 120 \
-               https://line-weekly-game-bot.onrender.com/health
+               "$SERVICE_URL/health"

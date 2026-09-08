@@ -3,6 +3,8 @@ name: weekly-close
 # 每週一 12:05 台北時間（= 04:05 UTC）結算名單並推播。
 # 排 12:05 而不是 12:00，是留緩衝避免排程稍早觸發時抓不到剛截止的場次。
 # 端點是冪等的，重複呼叫只會推播一次，所以 GitHub 排程延遲不影響正確性。
+#
+# 需要 repo variable SERVICE_URL 與 repo secret TASK_KEY。
 on:
   schedule:
     - cron: '5 4 * * 1'
@@ -17,24 +19,33 @@ jobs:
   close:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      SERVICE_URL: ${{ vars.SERVICE_URL }}
     steps:
+      - name: 檢查設定
+        run: |
+          if [ -z "$SERVICE_URL" ]; then
+            echo "::error::缺少 repo variable SERVICE_URL"
+            exit 1
+          fi
+          if [ -z "${{ secrets.TASK_KEY }}" ]; then
+            echo "::error::缺少 repo secret TASK_KEY"
+            exit 1
+          fi
+
       - name: 先喚醒服務
         run: |
           curl --silent --show-error --fail \
                --retry 5 --retry-delay 20 --retry-all-errors \
                --max-time 180 \
-               https://line-weekly-game-bot.onrender.com/health
+               "$SERVICE_URL/health"
 
       - name: 結算並推播名單
         env:
           TASK_KEY: ${{ secrets.TASK_KEY }}
           DATE: ${{ inputs.date }}
         run: |
-          if [ -z "$TASK_KEY" ]; then
-            echo "::error::缺少 TASK_KEY secret"
-            exit 1
-          fi
-          url="https://line-weekly-game-bot.onrender.com/tasks/close?key=$TASK_KEY"
+          url="$SERVICE_URL/tasks/close?key=$TASK_KEY"
           [ -n "$DATE" ] && url="$url&date=$DATE"
           # 只印出回應內容，網址含密鑰不能進 log
           curl --silent --show-error --fail --max-time 120 "$url" | tee result.json
