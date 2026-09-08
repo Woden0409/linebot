@@ -57,6 +57,9 @@ curl -H "Authorization: Bearer $LINE_CHANNEL_ACCESS_TOKEN" https://api.line.me/v
 | 保活時段 | 台北 08:00–23:00（約 465 instance 小時／月，上限 750 由整個 workspace 共用） |
 | 排程 | GitHub Actions：`keepalive.yml`（每 10 分鐘）、`weekly-close.yml`（週一 12:05 台北） |
 
+> 服務網址在 workflow 裡是讀 repo variable **`SERVICE_URL`**（Settings → Secrets and variables → Actions → Variables），
+> 換部署位置只要改那一個值。搬遷步驟見 [`MIGRATION.md`](MIGRATION.md)。
+
 ## 部署（Render 免費版 + Supabase 免費版）
 
 Render 免費版磁碟不持久、15 分鐘沒流量會休眠，所以資料存 Supabase，並用外部排程保活。
