@@ -101,8 +101,8 @@ Render 免費版**閒置 15 分鐘就休眠，喚醒約 1 分鐘**，而 LINE �
 手動觸發（例如臨時要重新結算）：
 
 ```bash
-gh workflow run weekly-close.yml --repo TechShinchitose/linebot -f date=2026-09-08
-gh workflow run keepalive.yml --repo TechShinchitose/linebot
+gh workflow run weekly-close.yml --repo Woden0409/linebot -f date=2026-09-08
+gh workflow run keepalive.yml --repo Woden0409/linebot
 ```
 
 > ⚠️ GitHub 會在 repo **連續 60 天沒有 commit** 時自動停用排程 workflow（會先寄信通知）。

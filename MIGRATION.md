@@ -39,14 +39,21 @@
 
 ## 2. GitHub repo 轉移
 
-1. `github.com/TechShinchitose/linebot` → **Settings → General → 最下方 Transfer ownership**
-2. 填 `grace92h@gmail.com` 對應的 **GitHub 使用者名稱**（不是 email），對方需在信件中接受
-3. 轉移後到 **Settings → Secrets and variables → Actions** 確認：
-   - Secret `TASK_KEY` 還在（repo 層級 secret 會跟著轉移）
-   - Variable `SERVICE_URL` 還在（第 5 步會改它的值）
-   - 若有掉，用本機 `.env` 裡的 `TASK_KEY` 重設
+**✅ 已完成** —— repo 現位於 [`Woden0409/linebot`](https://github.com/Woden0409/linebot)，舊網址自動轉址。
 
-轉移後舊 Render 服務會失去自動部署連結，但**服務本身照常運作**，不影響第 3、4 步。
+轉移後已驗證：
+
+| 項目 | 結果 |
+| --- | --- |
+| Secret `TASK_KEY` | ✅ 保留 |
+| Variable `SERVICE_URL` | ✅ 保留 |
+| `keepalive` / `weekly-close` workflow | ✅ 仍為 active，手動觸發 success |
+| 本機 git remote | ✅ 已指向新位置 |
+
+> 本機 `gh` 需要用 `Woden0409` 帳號才有這個 repo 的權限：
+> `gh auth switch --user Woden0409`（切回公司帳號則是 `--user TechShinchitose`）。
+
+舊 Render 服務因此失去自動部署連結，但**服務本身照常運作**，不影響第 3、4 步。
 
 ---
 
