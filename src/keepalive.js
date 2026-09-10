@@ -23,7 +23,8 @@ function startKeepAlive({ selfUrl, timeZone, fromHour, toHour, intervalMinutes =
   };
   const timer = setInterval(tick, intervalMinutes * 60 * 1000);
   timer.unref?.();
-  log.log(`自我保活已啟動：${target}，每 ${intervalMinutes} 分鐘，時段 ${fromHour}:00–${toHour}:00 ${timeZone}`);
+  const window = fromHour === toHour ? '全天' : `${fromHour}:00–${toHour}:00 ${timeZone}`;
+  log.log(`自我保活已啟動：${target}，每 ${intervalMinutes} 分鐘，時段 ${window}`);
   return { timer, tick };
 }
 
