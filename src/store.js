@@ -68,6 +68,10 @@ class JsonStore {
       .map(([groupId]) => groupId);
   }
 
+  async ping() {
+    return true;
+  }
+
   async wasAnnounced(groupId, eventDate) {
     return Boolean(this.state.announced[`${groupId}|${eventDate}`]);
   }
@@ -139,6 +143,12 @@ class SupabaseStore {
   async listGroups(eventDate) {
     const rows = await this.request(`/linebot_registrations?event_date=eq.${eventDate}&select=group_id`);
     return [...new Set(rows.map((row) => row.group_id))];
+  }
+
+  // Supabase 免費專案連續 7 天沒有存取就會被暫停，所以定期做一次最輕的查詢。
+  async ping() {
+    await this.request('/linebot_registrations?select=group_id&limit=1');
+    return true;
   }
 
   async wasAnnounced(groupId, eventDate) {

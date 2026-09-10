@@ -20,9 +20,11 @@ test('跨午夜的時段設定也正確', () => {
   assert.equal(isAwakeWindow(at('2026-09-07T02:00:00Z'), overnight), false, '台北 10:00');
 });
 
-test('fromHour 等於 toHour 代表全天保活', () => {
+test('fromHour 等於 toHour 代表全天保活（目前的正式設定）', () => {
   const always = { timeZone: 'Asia/Taipei', fromHour: 0, toHour: 0 };
-  assert.equal(isAwakeWindow(at('2026-09-06T20:00:00Z'), always), true);
+  for (const utc of ['2026-09-06T20:00:00Z', '2026-09-07T00:00:00Z', '2026-09-07T15:00:00Z', '2026-09-07T23:59:00Z']) {
+    assert.equal(isAwakeWindow(at(utc), always), true, `${utc} 應該保活`);
+  }
 });
 
 test('沒設 SELF_URL 就不啟動保活', () => {

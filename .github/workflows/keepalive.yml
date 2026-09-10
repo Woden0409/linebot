@@ -2,19 +2,19 @@ name: keepalive
 
 # 這是「第二層備援」，不是主要保活手段。
 #
-# 主要保活由 cron-job.org 負責（台北 08:00–22:50 每 10 分鐘，一天 90 次），
-# 因為 GitHub 排程實測極不可靠：原本設每 10 分鐘（一天應 90 次），
-# 實際一天只跑 4 次、間隔 4–6 小時、甚至跑到設定的時段範圍外。
-# 高頻 cron 在公開 repo 會被大幅延遲或丟棄，撐不住 15 分鐘的休眠門檻。
+# 主要保活由 cron-job.org 負責（全天每 10 分鐘），因為 GitHub 排程實測極不可靠：
+# 原本設每 10 分鐘（一天應 90 次），實際一天只跑 4 次、間隔 4–6 小時、
+# 甚至跑到設定的時段範圍外。高頻 cron 在公開 repo 會被大幅延遲或丟棄，
+# 撐不住 Render 的 15 分鐘休眠門檻。
 #
-# 所以這裡改成每小時一次：cron-job.org 若失效，服務最多睡 1 小時就會被喚醒，
-# 不會整天失聯，同時也不會留下一堆沒意義的執行紀錄。
+# 所以這裡是每小時一次：cron-job.org 若失效，服務最多睡 1 小時就會被喚醒。
+# /health 每小時也會順手碰一次 Supabase，避免免費專案因 7 天無存取被暫停。
 #
 # 服務網址放在 repo variable SERVICE_URL（Settings → Secrets and variables → Actions → Variables），
 # 換部署位置時只要改那一個值，不用動這個檔案。
 on:
   schedule:
-    - cron: '0 0-14 * * *'
+    - cron: '0 * * * *'
   workflow_dispatch:
 
 jobs:

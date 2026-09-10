@@ -139,6 +139,24 @@ async function closeAndAnnounce(overrideDate) {
   return { ok: true, eventDate, groups: results.length, results };
 }
 
+// Supabase 免費專案連續 7 天沒有存取就會被暫停，會讓機器人整個掛掉。
+// /health 每小時順手碰一次資料庫，保活與資料庫續命就綁在同一條線上，不必多開服務。
+const DB_TOUCH_INTERVAL_MS = 60 * 60 * 1000;
+const dbHealth = { lastAttemptAt: 0, lastOkAt: null, lastError: null };
+
+function touchDatabase() {
+  const now = Date.now();
+  if (now - dbHealth.lastAttemptAt < DB_TOUCH_INTERVAL_MS) return;
+  dbHealth.lastAttemptAt = now;
+  // 不擋住 /health 的回應，失敗只記錄下來讓 /health 看得到。
+  store.ping()
+    .then(() => { dbHealth.lastOkAt = new Date().toISOString(); dbHealth.lastError = null; })
+    .catch((error) => {
+      dbHealth.lastError = error.message;
+      console.error('資料庫保活失敗', error.message);
+    });
+}
+
 function verifySignature(body, signature) {
   if (!config.channelSecret || !signature) return false;
   const expected = crypto.createHmac('sha256', config.channelSecret).update(body).digest('base64');
@@ -157,10 +175,14 @@ const server = http.createServer((request, response) => {
 
   if (request.method === 'GET' && url.pathname === '/health') {
     const cycle = resolveCycle(new Date(), cycleOptions);
+    touchDatabase();
     return send(response, 200, {
       ok: true,
       openEvent: cycle.eventDate,
-      deadline: `${cycle.deadlineDate} ${String(cycle.deadlineHour).padStart(2, '0')}:00 ${config.timeZone}`
+      deadline: `${cycle.deadlineDate} ${String(cycle.deadlineHour).padStart(2, '0')}:00 ${config.timeZone}`,
+      db: dbHealth.lastOkAt
+        ? { lastOkAt: dbHealth.lastOkAt, ...(dbHealth.lastError ? { lastError: dbHealth.lastError } : {}) }
+        : { lastError: dbHealth.lastError || 'not checked yet' }
     });
   }
 
@@ -205,4 +227,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { server, store, verifySignature, closeAndAnnounce, config };
+module.exports = { server, store, dbHealth, verifySignature, closeAndAnnounce, config };

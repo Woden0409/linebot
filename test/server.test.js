@@ -98,6 +98,27 @@ test('健康檢查回報目前開放的場次與截止時間', async () => {
   assert.equal(response.status, 200);
   assert.equal(body.openEvent, cycle.eventDate);
   assert.match(body.deadline, /12:00 Asia\/Taipei/);
+  assert.ok(body.db, '應回報資料庫保活狀態');
+});
+
+test('健康檢查會碰資料庫，但每小時最多一次', async () => {
+  let pings = 0;
+  const original = store.ping.bind(store);
+  store.ping = async () => { pings += 1; return original(); };
+  try {
+    for (let i = 0; i < 5; i += 1) await realFetch(`${origin}/health`);
+    await waitFor(() => pings >= 0, 'ping');
+    assert.equal(pings, 0, '同一小時內已碰過，不應重複打資料庫');
+
+    // 把上次嘗試時間往前推一小時，模擬時間經過
+    const { dbHealth } = require('../src/server');
+    if (dbHealth) dbHealth.lastAttemptAt = Date.now() - 61 * 60 * 1000;
+    await realFetch(`${origin}/health`);
+    await waitFor(() => pings === 1, '經過一小時後應再碰一次資料庫');
+    assert.equal(pings, 1);
+  } finally {
+    store.ping = original;
+  }
 });
 
 test('群組聊天不會觸發任何 LINE 呼叫（不浪費額度）', async () => {
