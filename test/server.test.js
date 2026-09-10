@@ -111,20 +111,20 @@ test('完整報名流程：報名、備取、取消遞補', async () => {
   await webhook([message('u1', '+甲')]);
   await webhook([message('u2', '＋乙')]);
   await webhook([message('u3', '報名 丙')]);
-  assert.match(replies()[0], /甲 報名成功，第 1 位/);
-  assert.match(replies()[2], /丙 已列備取第 1 位/);
+  assert.match(replies()[0], /甲 報名成功（第 1 位）/);
+  assert.match(replies()[2], /丙 已排備取第 1 位/);
 
   await webhook([message('u1', '取消')]);
   calls.length = 0;
   await webhook([message('u2', '名單')]);
-  assert.match(replies()[0], /正取 2\/2 人/);
+  assert.match(replies()[0], /正取 2\/2/);
   assert.doesNotMatch(replies()[0], /備取 \d/);
 });
 
 test('只打「+」時用 LINE 顯示名稱報名', async () => {
   calls.length = 0;
   await webhook([message('u4', '＋')]);
-  assert.match(replies()[0], /阿明 已列備取|阿明 報名成功/);
+  assert.match(replies()[0], /阿明 已排備取|阿明 報名成功/);
 });
 
 test('每週結算：鎖定名單、推播一次、重複呼叫不重送', async () => {

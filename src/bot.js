@@ -1,10 +1,13 @@
 const { describeDeadline, formatEventDate } = require('./schedule');
 
-const MAX_NAME_LENGTH = 20;
+// 英文全名（含空格）會比中文名長不少，所以放寬到 30。
+const MAX_NAME_LENGTH = 30;
 const SIGN_UP = /^(?:[+＋]|報名|我要報名|參加)\s*(.*)$/;
 const CANCEL = /^(?:[-－]|取消|取消報名|不參加|請假|cancel)\s*$/i;
 const LIST = /^(?:名單|報名名單|查名單|統計|list)\s*$/i;
 const HELP = /^(?:幫助|說明|指令|help|[?？])\s*$/i;
+
+const DIVIDER = '─────────────';
 
 function normalize(text) {
   return String(text || '').trim().replace(/\s+/g, ' ');
@@ -14,31 +17,46 @@ function formatList(entries, { eventDate, maxPlayers, gameWeekday, cycle, closed
   const confirmed = entries.slice(0, maxPlayers);
   const waiting = entries.slice(maxPlayers);
   const lines = [
-    `🏀 ${formatEventDate(eventDate, gameWeekday)} 球賽`,
-    closed ? '📌 報名已截止（最終名單）' : `⏰ 截止：${describeDeadline(cycle, gameWeekday)}`,
-    `正取 ${confirmed.length}/${maxPlayers} 人${waiting.length ? `，備取 ${waiting.length} 人` : ''}`,
-    ''
+    `🏐 ${formatEventDate(eventDate, gameWeekday)}排球`,
+    closed ? '📌 報名已截止（最終名單）' : `⏰ 截止 ${describeDeadline(cycle, gameWeekday)}`,
+    `👥 正取 ${confirmed.length}/${maxPlayers}${waiting.length ? `　備取 ${waiting.length}` : ''}`,
+    DIVIDER
   ];
   lines.push(...(confirmed.length ? confirmed.map((entry, index) => `${index + 1}. ${entry.name}`) : ['（尚無人報名）']));
   if (waiting.length) {
-    lines.push('', '— 備取 —', ...waiting.map((entry, index) => `${index + 1}. ${entry.name}`));
+    lines.push('', '備取', ...waiting.map((entry, index) => `${index + 1}. ${entry.name}`));
   }
   return lines.join('\n');
 }
 
 function help({ maxPlayers, gameWeekday, cycle }) {
   return [
-    '🏀 每週球賽報名',
-    `本場：${formatEventDate(cycle.eventDate, gameWeekday)}，名額 ${maxPlayers} 人`,
-    `截止：${describeDeadline(cycle, gameWeekday)}（額滿自動列備取）`,
+    '🏐 每週排球報名',
     '',
-    '＋王小明　→ 報名（也可打「報名 王小明」）',
-    '＋　　　　→ 用你的 LINE 名稱報名',
-    '取消　　　→ 取消自己的報名',
-    '名單　　　→ 查看目前名單',
-    '幫助　　　→ 顯示這則說明',
+    `📅 本場　${formatEventDate(cycle.eventDate, gameWeekday)}`,
+    `👥 名額　${maxPlayers} 人`,
+    `⏰ 截止　${describeDeadline(cycle, gameWeekday)}`,
     '',
-    '※ 其他訊息機器人不會回應，聊天不受影響。'
+    DIVIDER,
+    '怎麼報名',
+    DIVIDER,
+    '「＋王小明」',
+    '「＋John Smith」',
+    '　英文名、有空格都可以，',
+    '　＋後面整串都算你的名字。',
+    '',
+    '「＋」只打加號',
+    '　＝ 用你的 LINE 名稱報名',
+    '',
+    DIVIDER,
+    '其他指令',
+    DIVIDER,
+    '「取消」取消自己的報名',
+    '「名單」查看目前名單',
+    '「幫助」顯示這則說明',
+    '',
+    '額滿會自動排備取，有人取消時依序遞補。',
+    '其他訊息機器人不會回應，聊天不受影響。'
   ].join('\n');
 }
 
@@ -56,7 +74,8 @@ async function handleText({ text, userId, groupId, store, cycle, maxPlayers, gam
     if (cycle.closedEvent) {
       const finalEntries = await store.getEntries(groupId, cycle.closedEvent);
       if (finalEntries.length) {
-        message = `${formatList(finalEntries, { ...context, eventDate: cycle.closedEvent, closed: true })}\n\n———\n下一場開放報名中：\n${message}`;
+        const final = formatList(finalEntries, { ...context, eventDate: cycle.closedEvent, closed: true });
+        message = `${final}\n\n\n下一場開放報名中\n\n${message}`;
       }
     }
     return message;
@@ -65,28 +84,28 @@ async function handleText({ text, userId, groupId, store, cycle, maxPlayers, gam
   if (CANCEL.test(input)) {
     const result = await store.cancel(groupId, eventDate, userId);
     if (result.status === 'not_found') {
-      return `你尚未報名 ${formatEventDate(eventDate, gameWeekday)} 的球賽。`;
+      return `你尚未報名 ${formatEventDate(eventDate, gameWeekday)} 的排球。`;
     }
-    return `已取消 ${result.removed.name} 的報名。\n\n${formatList(result.entries, context)}`;
+    return `❎ 已取消 ${result.removed.name} 的報名\n\n${formatList(result.entries, context)}`;
   }
 
   const match = input.match(SIGN_UP);
   if (!match) return null;
 
   const name = normalize(match[1]) || normalize(displayName);
-  if (!name) return '請在「＋」後面加上你的姓名，例如：＋王小明';
-  if (name.length > MAX_NAME_LENGTH) return `姓名請控制在 ${MAX_NAME_LENGTH} 個字以內。`;
+  if (!name) return '請在「＋」後面加上你的名字，例如：＋王小明';
+  if (name.length > MAX_NAME_LENGTH) return `名字請控制在 ${MAX_NAME_LENGTH} 個字以內。`;
 
   const result = await store.register(groupId, eventDate, { userId, name });
   if (result.status === 'duplicate') {
     const current = result.entries.find((entry) => entry.userId === userId);
-    return `你已經報名了，登記姓名是「${current.name}」。要換人請先輸入「取消」。`;
+    return `你已經報名了，登記的名字是「${current.name}」。\n要換名字或換人請先輸入「取消」。`;
   }
 
   const position = result.entries.findIndex((entry) => entry.userId === userId) + 1;
   const head = position > maxPlayers
-    ? `🕒 ${name} 已列備取第 ${position - maxPlayers} 位（有人取消會自動遞補）。`
-    : `✅ ${name} 報名成功，第 ${position} 位。`;
+    ? `🕒 ${name} 已排備取第 ${position - maxPlayers} 位\n有人取消會自動遞補。`
+    : `✅ ${name} 報名成功（第 ${position} 位）`;
   return `${head}\n\n${formatList(result.entries, context)}`;
 }
 
