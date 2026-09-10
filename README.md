@@ -50,10 +50,11 @@ curl -H "Authorization: Bearer $LINE_CHANNEL_ACCESS_TOKEN" https://api.line.me/v
 
 | 項目 | 位置 |
 | --- | --- |
-| 服務網址 | https://line-weekly-game-bot.onrender.com |
-| Render | workspace `My Workspace`，service `line-weekly-game-bot`（free / Singapore） |
-| Supabase | 專案 `omni-cart-core`（ap-northeast-1），資料表 `linebot_registrations`、`linebot_announcements` |
-| Webhook URL | https://line-weekly-game-bot.onrender.com/webhook |
+| 服務網址 | https://line-signup-bot-fa1z.onrender.com |
+| Render | 帳號 `grace92h@gmail.com`，service `line-signup-bot`（free / Singapore） |
+| Supabase | 專案 `cwkwdgthunobiqaohyym`（ap-northeast-1），資料表 `linebot_registrations`、`linebot_announcements` |
+| GitHub | `Woden0409/linebot`（public） |
+| Webhook URL | https://line-signup-bot-fa1z.onrender.com/webhook |
 | 保活時段 | 台北 08:00–23:00（約 465 instance 小時／月，上限 750 由整個 workspace 共用） |
 | 保活 | cron-job.org job `linebot-keepalive`（每 10 分鐘）＋服務自我 ping ＋ GitHub Actions 每小時備援 |
 | 每週結算 | GitHub Actions `weekly-close.yml`（週一 12:05 台北） |
@@ -83,11 +84,14 @@ Render 免費版磁碟不持久、15 分鐘沒流量會休眠，所以資料存 
 Render 免費版**閒置 15 分鐘就休眠，喚醒約 1 分鐘**，而 LINE 的 **reply token 只有 1 分鐘有效** ——
 睡著時收到的報名很可能回不了話。所以要保活。
 
-但 **750 免費 instance 小時是整個 Render workspace 共用的**（本帳號的 `pharmacy-chain` 也在用），
-24 小時不休眠一個月要 744 小時，會把額度吃光 → **所有免費 web service 一起被停用到下個月**。
+但 **750 免費 instance 小時是整個 Render workspace 共用的**，24 小時不休眠一個月要 744 小時，
+會把額度吃光 → **所有免費 web service 一起被停用到下個月**。
 
 因此採「時段式保活」：只在台北 **08:00–23:00** 保持喚醒，約 **465 小時／月**，留約 285 小時給其他服務。
 深夜報名只會遇到一次約 1 分鐘的冷啟動延遲。
+
+> ⚠️ 同 workspace 的 `baoge-backend` 也是免費 web service。目前它休眠中（用量 0 小時）所以沒問題，
+> 但若之後也幫它裝保活，兩個加起來會超過 750 小時，記得回來縮短這裡的時段。
 
 三層保險同時運作：
 
@@ -121,17 +125,17 @@ gh workflow run keepalive.yml --repo Woden0409/linebot
 
 1. Messaging API 頁面開啟 **Allow bot to join group chats**。
 2. 關閉 LINE Official Account Manager 的自動回應，避免一則訊息被回兩次。
-3. Webhook URL 設為 `https://line-weekly-game-bot.onrender.com/webhook`，Verify 後啟用 **Use webhook**。
+3. Webhook URL 設為 `https://line-signup-bot-fa1z.onrender.com/webhook`，Verify 後啟用 **Use webhook**。
 4. 把官方帳號邀請進 LINE 群組。
 
 ## 手動操作
 
 ```bash
 # 手動結算指定日期的場次（會推播，會扣額度）
-curl "https://line-weekly-game-bot.onrender.com/tasks/close?key=你的TASK_KEY&date=2026-09-08"
+curl "https://line-signup-bot-fa1z.onrender.com/tasks/close?key=你的TASK_KEY&date=2026-09-08"
 
 # 看服務狀態與目前開放的場次
-curl https://line-weekly-game-bot.onrender.com/health
+curl https://line-signup-bot-fa1z.onrender.com/health
 ```
 
 ## 本機開發
