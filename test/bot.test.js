@@ -49,13 +49,65 @@ test('只有指令會得到回應，一般聊天完全沉默', async () => {
   assert.match(await handleText({ ...base, userId: 'u1', text: '幫助' }), /每週排球報名/);
 });
 
-test('報名、擋重複、取消都以 LINE 使用者 ID 為準', async () => {
+test('報名、擋同名重複、取消', async () => {
   const base = context();
   assert.match(await handleText({ ...base, userId: 'u1', text: '+王小明' }), /王小明 報名成功（第 1 位）/);
-  assert.match(await handleText({ ...base, userId: 'u1', text: '＋另一個名字' }), /已經報名/);
+  assert.match(await handleText({ ...base, userId: 'u1', text: '＋王小明' }), /「王小明」已經報名過了/);
   assert.match(await handleText({ ...base, userId: 'u2', text: '報名 李小華' }), /第 2 位/);
   assert.match(await handleText({ ...base, userId: 'u1', text: '取消' }), /已取消 王小明/);
   assert.match(await handleText({ ...base, userId: 'u1', text: '取消' }), /尚未報名/);
+});
+
+test('同一個帳號可以幫朋友報多位', async () => {
+  const base = context();
+  assert.match(await handleText({ ...base, userId: 'u1', text: '＋王小明' }), /王小明 報名成功（第 1 位）/);
+
+  const second = await handleText({ ...base, userId: 'u1', text: '＋陳大文' });
+  assert.match(second, /陳大文 報名成功（第 2 位）/);
+  assert.match(second, /你目前登記 2 位：王小明、陳大文/);
+
+  const third = await handleText({ ...base, userId: 'u1', text: '＋John Smith' });
+  assert.match(third, /你目前登記 3 位：王小明、陳大文、John Smith/);
+
+  const list = await handleText({ ...base, userId: 'u2', text: '名單' });
+  assert.match(list, /正取 3\/21/);
+});
+
+test('登記多位時，取消必須指定是誰', async () => {
+  const base = context();
+  await handleText({ ...base, userId: 'u1', text: '＋王小明' });
+  await handleText({ ...base, userId: 'u1', text: '＋陳大文' });
+
+  const ask = await handleText({ ...base, userId: 'u1', text: '取消' });
+  assert.match(ask, /你登記了 2 位，請指定要取消誰/);
+  assert.match(ask, /「取消 王小明」/);
+  assert.match(ask, /「取消 陳大文」/);
+
+  assert.match(await handleText({ ...base, userId: 'u1', text: '取消 陳大文' }), /已取消 陳大文/);
+  // 剩一位時「取消」不必再指定
+  assert.match(await handleText({ ...base, userId: 'u1', text: '取消' }), /已取消 王小明/);
+});
+
+test('取消全部，以及取消不存在的名字', async () => {
+  const base = context();
+  await handleText({ ...base, userId: 'u1', text: '＋王小明' });
+  await handleText({ ...base, userId: 'u1', text: '＋陳大文' });
+
+  const wrong = await handleText({ ...base, userId: 'u1', text: '取消 不存在的人' });
+  assert.match(wrong, /你沒有登記「不存在的人」/);
+  assert.match(wrong, /王小明、陳大文/);
+
+  const all = await handleText({ ...base, userId: 'u1', text: '取消全部' });
+  assert.match(all, /已取消你登記的 2 位：王小明、陳大文/);
+  assert.match(all, /（尚無人報名）/);
+});
+
+test('只能取消自己登記的人', async () => {
+  const base = context();
+  await handleText({ ...base, userId: 'u1', text: '＋王小明' });
+  assert.match(await handleText({ ...base, userId: 'u2', text: '取消 王小明' }), /尚未報名/);
+  const list = await handleText({ ...base, userId: 'u1', text: '名單' });
+  assert.match(list, /1\. 王小明/);
 });
 
 test('指令後面整串都算名字，英文名與空格不會被截掉', async () => {

@@ -6,7 +6,9 @@ create table if not exists linebot_registrations (
   user_id    text        not null,
   name       text        not null,
   created_at timestamptz not null default now(),
-  primary key (group_id, event_date, user_id)
+  -- name 併入主鍵：同一個 LINE 帳號可以幫朋友報多個名字，
+  -- 但同一人報同一個名字仍會被擋掉。
+  primary key (group_id, event_date, user_id, name)
 );
 
 -- 正取／備取只看 created_at 先後，因此有人取消時後面自動遞補，不需要另外記狀態。

@@ -37,11 +37,12 @@ class JsonStore {
     return [...this.bucket(groupId, eventDate)].sort(byCreatedAt);
   }
 
+  // 同一個 LINE 帳號可以報多個名字（代朋友報名），但同一人報同一個名字會被擋。
   register(groupId, eventDate, player) {
     return this.update((state) => {
       const group = (state.groups[groupId] ||= { events: {} });
       const event = (group.events[eventDate] ||= { entries: [] });
-      if (event.entries.some((entry) => entry.userId === player.userId)) {
+      if (event.entries.some((entry) => entry.userId === player.userId && entry.name === player.name)) {
         return { status: 'duplicate', entries: [...event.entries].sort(byCreatedAt) };
       }
       event.entries.push({ ...player, createdAt: new Date().toISOString() });
@@ -49,10 +50,12 @@ class JsonStore {
     });
   }
 
-  cancel(groupId, eventDate, userId) {
+  cancel(groupId, eventDate, userId, name) {
     return this.update((state) => {
       const entries = state.groups[groupId]?.events[eventDate]?.entries;
-      const index = entries ? entries.findIndex((entry) => entry.userId === userId) : -1;
+      const index = entries
+        ? entries.findIndex((entry) => entry.userId === userId && entry.name === name)
+        : -1;
       if (index < 0) return { status: 'not_found', entries: [...(entries || [])].sort(byCreatedAt) };
       const [removed] = entries.splice(index, 1);
       return { status: 'cancelled', removed, entries: [...entries].sort(byCreatedAt) };
@@ -113,7 +116,7 @@ class SupabaseStore {
         body: JSON.stringify({ group_id: groupId, event_date: eventDate, user_id: player.userId, name: player.name })
       });
     } catch (error) {
-      // 23505 = 主鍵重複，代表同一個 LINE 使用者已經報過名。
+      // 23505 = 主鍵重複。主鍵含 name，所以只有「同一人報同一個名字」才算重複。
       if (error.status === 409 || String(error.body).includes('23505')) {
         return { status: 'duplicate', entries: await this.getEntries(groupId, eventDate) };
       }
@@ -122,9 +125,10 @@ class SupabaseStore {
     return { status: 'registered', entries: await this.getEntries(groupId, eventDate) };
   }
 
-  async cancel(groupId, eventDate, userId) {
+  async cancel(groupId, eventDate, userId, name) {
     const removed = await this.request(
-      `/linebot_registrations?group_id=eq.${encodeURIComponent(groupId)}&event_date=eq.${eventDate}&user_id=eq.${encodeURIComponent(userId)}`,
+      `/linebot_registrations?group_id=eq.${encodeURIComponent(groupId)}&event_date=eq.${eventDate}`
+        + `&user_id=eq.${encodeURIComponent(userId)}&name=eq.${encodeURIComponent(name)}`,
       { method: 'DELETE', headers: { Prefer: 'return=representation' } }
     );
     const entries = await this.getEntries(groupId, eventDate);
