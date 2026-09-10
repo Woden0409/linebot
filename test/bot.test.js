@@ -63,6 +63,27 @@ test('聊天中提到「報名」「取消」不會誤觸', async () => {
   assert.match(await handleText({ ...base, userId: 'u2', text: '名單' }), /（尚無人報名）/);
 });
 
+test('忘記空格時給提示，但不打擾正常聊天', async () => {
+  const base = context();
+  // 看起來像名字 → 給提示，並把名字回填讓對方直接照打
+  const hint = await handleText({ ...base, userId: 'u1', text: '報名王小明' });
+  assert.match(hint, /「報名」後面要空一格/);
+  assert.match(hint, /報名 王小明/);
+  assert.match(await handleText({ ...base, userId: 'u1', text: '取消王小明' }), /「取消」後面要空一格/);
+  assert.match(await handleText({ ...base, userId: 'u1', text: '報名JohnSmith' }), /報名 JohnSmith/);
+
+  // 像在聊天 → 完全沉默，不能被提示訊息洗版
+  for (const chat of [
+    '報名截止了嗎', '報名了', '報名網址在哪', '報名要付錢嗎', '報名嗎', '報名時間？',
+    '報名還有名額嗎', '報名可以帶人嗎', '報名怎麼用', '報名誰要去', '報名多少錢', '取消了嗎', '取消不了'
+  ]) {
+    assert.equal(await handleText({ ...base, userId: 'u1', text: chat }), null, `「${chat}」不該有回應`);
+  }
+
+  // 提示不會真的把人加進名單
+  assert.match(await handleText({ ...base, userId: 'u2', text: '名單' }), /（尚無人報名）/);
+});
+
 test('加號不再是指令，一律沉默', async () => {
   const base = context();
   for (const old of ['+王小明', '＋王小明', '+', '＋', '-', '－']) {

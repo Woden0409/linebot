@@ -13,6 +13,17 @@ const CANCEL_NAMED = /^(?:取消|取消報名)\s+(.+)$/;
 const LIST = /^(?:名單|報名名單|查名單|統計)$/;
 const HELP = /^(?:幫助|說明|指令|help|[?？])$/i;
 
+// 忘記空格時（「報名王小明」）給提示，但不能去回應正常聊天（「報名截止了嗎」）。
+// 判斷方式：後面那串要像名字 —— 不長、沒有標點、也不含問句或語尾助詞。
+const SIGN_UP_NO_SPACE = /^(?:報名|我要報名)(\S.*)$/;
+const CANCEL_NO_SPACE = /^(?:取消|取消報名)(\S.*)$/;
+const PUNCTUATION = /[？?！!。，,、；;：:…~～/／\\()（）「」【】]/;
+const CHAT_MARKERS = /[了嗎嘛呢吧啦喔囉耶欸哦呀啊麼誰哪幾怎沒要是不可能還在過就才也都多費]/;
+
+function looksLikeName(text) {
+  return text.length > 0 && text.length <= 20 && !PUNCTUATION.test(text) && !CHAT_MARKERS.test(text);
+}
+
 const DIVIDER = '─────────────';
 
 function normalize(text) {
@@ -101,6 +112,11 @@ async function handleText({ text, userId, groupId, store, cycle, maxPlayers, gam
     return message;
   }
 
+  const missedCancel = input.match(CANCEL_NO_SPACE);
+  if (missedCancel && !CANCEL_ALL.test(input) && looksLikeName(missedCancel[1])) {
+    return `⚠️ 「取消」後面要空一格。\n\n請改打：\n　取消 ${missedCancel[1]}`;
+  }
+
   const cancelAll = CANCEL_ALL.test(input);
   const cancelNamed = cancelAll ? null : input.match(CANCEL_NAMED);
   if (cancelAll || cancelNamed || CANCEL_BARE.test(input)) {
@@ -141,7 +157,13 @@ async function handleText({ text, userId, groupId, store, cycle, maxPlayers, gam
   }
 
   const named = input.match(SIGN_UP_NAMED);
-  if (!named && !SIGN_UP_BARE.test(input)) return null;
+  if (!named && !SIGN_UP_BARE.test(input)) {
+    const missed = input.match(SIGN_UP_NO_SPACE);
+    if (missed && looksLikeName(missed[1])) {
+      return `⚠️ 「報名」後面要空一格。\n\n請改打：\n　報名 ${missed[1]}`;
+    }
+    return null;
+  }
 
   const name = named ? normalize(named[1]) : normalize(displayName);
   if (!name) return '請在「報名」後面空一格再打名字，例如：報名 王小明';
