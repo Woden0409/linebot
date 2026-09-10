@@ -108,8 +108,8 @@ test('群組聊天不會觸發任何 LINE 呼叫（不浪費額度）', async ()
 
 test('完整報名流程：報名、備取、取消遞補', async () => {
   calls.length = 0;
-  await webhook([message('u1', '+甲')]);
-  await webhook([message('u2', '＋乙')]);
+  await webhook([message('u1', '報名 甲')]);
+  await webhook([message('u2', '報名 乙')]);
   await webhook([message('u3', '報名 丙')]);
   assert.match(replies()[0], /甲 報名成功（第 1 位）/);
   assert.match(replies()[2], /丙 已排備取第 1 位/);
@@ -123,7 +123,7 @@ test('完整報名流程：報名、備取、取消遞補', async () => {
 
 test('只打「+」時用 LINE 顯示名稱報名', async () => {
   calls.length = 0;
-  await webhook([message('u4', '＋')]);
+  await webhook([message('u4', '報名')]);
   assert.match(replies()[0], /阿明 已排備取|阿明 報名成功/);
 });
 

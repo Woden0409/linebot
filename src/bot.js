@@ -2,11 +2,16 @@ const { describeDeadline, formatEventDate } = require('./schedule');
 
 // 英文全名（含空格）會比中文名長不少，所以放寬到 30。
 const MAX_NAME_LENGTH = 30;
-const SIGN_UP = /^(?:[+＋]|報名|我要報名|參加)\s*(.*)$/;
-const CANCEL_ALL = /^(?:取消全部|全部取消|取消所有)\s*$/;
-const CANCEL = /^(?:[-－]|取消|取消報名|不參加|請假|cancel)\s*(.*)$/i;
-const LIST = /^(?:名單|報名名單|查名單|統計|list)\s*$/i;
-const HELP = /^(?:幫助|說明|指令|help|[?？])\s*$/i;
+// 指令一律用中文詞，不用符號。
+// 「報名」「取消」是日常對話會出現的詞，所以帶名字時一定要有空格分隔
+// （否則「報名截止了嗎」會被當成幫「截止了嗎」報名）。不合規則的訊息一律沉默。
+const SIGN_UP_BARE = /^(?:報名|我要報名)$/;
+const SIGN_UP_NAMED = /^(?:報名|我要報名)\s+(.+)$/;
+const CANCEL_ALL = /^(?:取消全部|全部取消|取消所有)$/;
+const CANCEL_BARE = /^(?:取消|取消報名)$/;
+const CANCEL_NAMED = /^(?:取消|取消報名)\s+(.+)$/;
+const LIST = /^(?:名單|報名名單|查名單|統計)$/;
+const HELP = /^(?:幫助|說明|指令|help|[?？])$/i;
 
 const DIVIDER = '─────────────';
 
@@ -41,18 +46,20 @@ function help({ maxPlayers, gameWeekday, cycle }) {
     DIVIDER,
     '怎麼報名',
     DIVIDER,
-    '「＋王小明」',
-    '「＋John Smith」',
-    '　英文名、有空格都可以，',
-    '　＋後面整串都算你的名字。',
+    '「報名 王小明」',
+    '「報名 John Smith」',
     '',
-    '「＋」只打加號',
+    '⚠️ 報名和名字中間要空一格。',
+    '　 空格後面整串都算名字，',
+    '　 英文名、有空格都可以。',
+    '',
+    '只打「報名」兩個字',
     '　＝ 用你的 LINE 名稱報名',
     '',
     DIVIDER,
     '幫朋友報名',
     DIVIDER,
-    '再打一次「＋朋友的名字」就好，',
+    '再打一次「報名 朋友的名字」，',
     '同一個帳號可以報很多位。',
     '',
     DIVIDER,
@@ -95,8 +102,8 @@ async function handleText({ text, userId, groupId, store, cycle, maxPlayers, gam
   }
 
   const cancelAll = CANCEL_ALL.test(input);
-  const cancelMatch = cancelAll ? null : input.match(CANCEL);
-  if (cancelAll || cancelMatch) {
+  const cancelNamed = cancelAll ? null : input.match(CANCEL_NAMED);
+  if (cancelAll || cancelNamed || CANCEL_BARE.test(input)) {
     const own = (await store.getEntries(groupId, eventDate)).filter((entry) => entry.userId === userId);
     if (!own.length) {
       return `你尚未報名 ${formatEventDate(eventDate, gameWeekday)} 的排球。`;
@@ -108,7 +115,7 @@ async function handleText({ text, userId, groupId, store, cycle, maxPlayers, gam
       return `❎ 已取消你登記的 ${own.length} 位：${own.map((e) => e.name).join('、')}\n\n${formatList(entries, context)}`;
     }
 
-    const wanted = normalize(cancelMatch[1]);
+    const wanted = cancelNamed ? normalize(cancelNamed[1]) : '';
     // 沒指定名字時，只有一位就直接取消；有多位一定要講清楚取消誰。
     let target = own[0].name;
     if (wanted) {
@@ -133,11 +140,11 @@ async function handleText({ text, userId, groupId, store, cycle, maxPlayers, gam
     return `❎ 已取消 ${result.removed.name} 的報名\n\n${formatList(result.entries, context)}`;
   }
 
-  const match = input.match(SIGN_UP);
-  if (!match) return null;
+  const named = input.match(SIGN_UP_NAMED);
+  if (!named && !SIGN_UP_BARE.test(input)) return null;
 
-  const name = normalize(match[1]) || normalize(displayName);
-  if (!name) return '請在「＋」後面加上你的名字，例如：＋王小明';
+  const name = named ? normalize(named[1]) : normalize(displayName);
+  if (!name) return '請在「報名」後面空一格再打名字，例如：報名 王小明';
   if (name.length > MAX_NAME_LENGTH) return `名字請控制在 ${MAX_NAME_LENGTH} 個字以內。`;
 
   const result = await store.register(groupId, eventDate, { userId, name });

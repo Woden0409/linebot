@@ -82,7 +82,8 @@ async function memberDisplayName(source) {
   return profile?.displayName || '';
 }
 
-const BARE_SIGN_UP = /^(?:[+＋]|報名|參加)\s*$/;
+// 只打「報名」兩個字時才需要去查 LINE 顯示名稱，省一次 API 呼叫。
+const BARE_SIGN_UP = /^(?:報名|我要報名)$/;
 
 async function processEvent(event) {
   const cycle = resolveCycle(new Date(event.timestamp || Date.now()), cycleOptions);
