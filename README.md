@@ -55,7 +55,8 @@ curl -H "Authorization: Bearer $LINE_CHANNEL_ACCESS_TOKEN" https://api.line.me/v
 | Supabase | 專案 `omni-cart-core`（ap-northeast-1），資料表 `linebot_registrations`、`linebot_announcements` |
 | Webhook URL | https://line-weekly-game-bot.onrender.com/webhook |
 | 保活時段 | 台北 08:00–23:00（約 465 instance 小時／月，上限 750 由整個 workspace 共用） |
-| 排程 | GitHub Actions：`keepalive.yml`（每 10 分鐘）、`weekly-close.yml`（週一 12:05 台北） |
+| 保活 | cron-job.org job `linebot-keepalive`（每 10 分鐘）＋服務自我 ping ＋ GitHub Actions 每小時備援 |
+| 每週結算 | GitHub Actions `weekly-close.yml`（週一 12:05 台北） |
 
 > 服務網址在 workflow 裡是讀 repo variable **`SERVICE_URL`**（Settings → Secrets and variables → Actions → Variables），
 > 換部署位置只要改那一個值。搬遷步驟見 [`MIGRATION.md`](MIGRATION.md)。
@@ -77,7 +78,7 @@ Render 免費版磁碟不持久、15 分鐘沒流量會休眠，所以資料存 
    node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
    ```
 
-### 3. 休眠與排程（GitHub Actions，免費）
+### 3. 休眠與保活（三層）
 
 Render 免費版**閒置 15 分鐘就休眠，喚醒約 1 分鐘**，而 LINE 的 **reply token 只有 1 分鐘有效** ——
 睡著時收到的報名很可能回不了話。所以要保活。
@@ -88,12 +89,17 @@ Render 免費版**閒置 15 分鐘就休眠，喚醒約 1 分鐘**，而 LINE �
 因此採「時段式保活」：只在台北 **08:00–23:00** 保持喚醒，約 **465 小時／月**，留約 285 小時給其他服務。
 深夜報名只會遇到一次約 1 分鐘的冷啟動延遲。
 
-兩道保險同時運作：
+三層保險同時運作：
 
-| 機制 | 設定 | 說明 |
-| --- | --- | --- |
-| GitHub Actions `keepalive.yml` | `*/10 0-14 * * *`（UTC）= 台北 08:00–22:50 每 10 分鐘 | 能**喚醒**已休眠的服務。公開 repo 的 Actions 分鐘數免費無上限 |
-| 服務自我 ping `src/keepalive.js` | 每 10 分鐘，`AWAKE_FROM_HOUR`～`AWAKE_TO_HOUR` | 補上 GitHub 排程延遲的空隙；服務睡著時無法自救，所以需要上面那個 |
+| 層級 | 機制 | 設定 | 說明 |
+| --- | --- | --- | --- |
+| 主要 | **cron-job.org** | 台北 08:00–22:50 每 10 分鐘（一天 90 次），時區直接選 Asia/Taipei | 準時觸發是它的本業。能**喚醒**已休眠的服務 |
+| 第二層 | 服務自我 ping `src/keepalive.js` | 每 10 分鐘，`AWAKE_FROM_HOUR`～`AWAKE_TO_HOUR` | 服務活著時自己撐住；睡著時無法自救 |
+| 備援 | GitHub Actions `keepalive.yml` | `0 0-14 * * *`（UTC）= 台北 08:00–22:00 每小時 | 前兩層都失效時的保險 |
+
+> ⚠️ **GitHub Actions 不能當主要保活手段**。原本設每 10 分鐘（一天應 90 次），
+> 實測一天只跑 4 次、間隔 4–6 小時、還會跑到設定的時段範圍外 —— 公開 repo 的高頻 cron
+> 會被大幅延遲或丟棄，撐不住 15 分鐘的休眠門檻。曾因此讓 LINE 的 webhook 連通測試直接 `REQUEST_TIMEOUT`。
 
 每週結算由 `weekly-close.yml` 負責，cron `5 4 * * 1`（UTC）= **每週一 12:05 台北時間**，
 `TASK_KEY` 存在 repo secret。端點是冪等的，所以 GitHub 排程延遲不影響正確性。
