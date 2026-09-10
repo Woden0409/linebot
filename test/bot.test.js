@@ -102,6 +102,49 @@ test('取消全部，以及取消不存在的名字', async () => {
   assert.match(all, /（尚無人報名）/);
 });
 
+test('取消全部只清掉自己的，不會動到別人', async () => {
+  const base = context();
+  await handleText({ ...base, userId: 'u1', text: '＋王小明' });
+  await handleText({ ...base, userId: 'u1', text: '＋陳大文' });
+  await handleText({ ...base, userId: 'u2', text: '＋李小美' });
+  await handleText({ ...base, userId: 'u2', text: '＋張三' });
+  await handleText({ ...base, userId: 'u3', text: '＋趙六' });
+
+  const all = await handleText({ ...base, userId: 'u1', text: '取消全部' });
+  assert.match(all, /已取消你登記的 2 位：王小明、陳大文/);
+
+  const list = await handleText({ ...base, userId: 'u9', text: '名單' });
+  assert.match(list, /正取 3\/21/);
+  assert.match(list, /李小美/);
+  assert.match(list, /張三/);
+  assert.match(list, /趙六/);
+  assert.doesNotMatch(list, /王小明/);
+  assert.doesNotMatch(list, /陳大文/);
+});
+
+test('兩個人登記同一個名字時，各自只能取消自己那筆', async () => {
+  const base = context();
+  // u1 和 u2 各自帶了一位都叫「王小明」的朋友
+  await handleText({ ...base, userId: 'u1', text: '＋王小明' });
+  await handleText({ ...base, userId: 'u1', text: '＋陳大文' });
+  await handleText({ ...base, userId: 'u2', text: '＋王小明' });
+
+  let list = await handleText({ ...base, userId: 'u9', text: '名單' });
+  assert.match(list, /正取 3\/21/, '同名不同人算兩個名額');
+
+  // u1 指定取消「王小明」，不能影響 u2 的那筆
+  assert.match(await handleText({ ...base, userId: 'u1', text: '取消 王小明' }), /已取消 王小明/);
+  list = await handleText({ ...base, userId: 'u9', text: '名單' });
+  assert.match(list, /正取 2\/21/);
+  assert.match(list, /王小明/, 'u2 登記的王小明還在');
+
+  // u1 取消全部，只會帶走自己剩下的陳大文
+  assert.match(await handleText({ ...base, userId: 'u1', text: '取消全部' }), /已取消你登記的 1 位：陳大文/);
+  list = await handleText({ ...base, userId: 'u9', text: '名單' });
+  assert.match(list, /正取 1\/21/);
+  assert.match(list, /1\. 王小明/, '最後只剩 u2 的王小明');
+});
+
 test('只能取消自己登記的人', async () => {
   const base = context();
   await handleText({ ...base, userId: 'u1', text: '＋王小明' });
