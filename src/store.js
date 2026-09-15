@@ -3,6 +3,11 @@ const path = require('node:path');
 
 const byCreatedAt = (a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0);
 
+// 推播紀錄分兩種：close（截止結算）與 open（開放報名）。
+// 資料表主鍵只有 (group_id, event_date)，為了不改結構，open 在 group_id 前加前綴；
+// close 維持原本的純 group_id，既有紀錄不用搬。
+const announcementKey = (groupId, kind) => (kind === 'open' ? `open:${groupId}` : groupId);
+
 // 正取／備取一律由報名時間先後決定，因此有人取消時後面自動遞補，不需另外記狀態。
 class JsonStore {
   constructor(filePath) {
@@ -68,17 +73,21 @@ class JsonStore {
       .map(([groupId]) => groupId);
   }
 
+  async listKnownGroups() {
+    return Object.keys(this.state.groups);
+  }
+
   async ping() {
     return true;
   }
 
-  async wasAnnounced(groupId, eventDate) {
-    return Boolean(this.state.announced[`${groupId}|${eventDate}`]);
+  async wasAnnounced(groupId, eventDate, kind = 'close') {
+    return Boolean(this.state.announced[`${announcementKey(groupId, kind)}|${eventDate}`]);
   }
 
-  markAnnounced(groupId, eventDate) {
+  markAnnounced(groupId, eventDate, kind = 'close') {
     return this.update((state) => {
-      state.announced[`${groupId}|${eventDate}`] = new Date().toISOString();
+      state.announced[`${announcementKey(groupId, kind)}|${eventDate}`] = new Date().toISOString();
     });
   }
 }
@@ -151,18 +160,25 @@ class SupabaseStore {
     return true;
   }
 
-  async wasAnnounced(groupId, eventDate) {
+  // 曾經有人報名過的群組，就是要收開放通知的群組。
+  async listKnownGroups() {
+    const rows = await this.request('/linebot_registrations?select=group_id');
+    return [...new Set(rows.map((row) => row.group_id))];
+  }
+
+  async wasAnnounced(groupId, eventDate, kind = 'close') {
+    const key = announcementKey(groupId, kind);
     const rows = await this.request(
-      `/linebot_announcements?group_id=eq.${encodeURIComponent(groupId)}&event_date=eq.${eventDate}&select=group_id`
+      `/linebot_announcements?group_id=eq.${encodeURIComponent(key)}&event_date=eq.${eventDate}&select=group_id`
     );
     return rows.length > 0;
   }
 
-  async markAnnounced(groupId, eventDate) {
+  async markAnnounced(groupId, eventDate, kind = 'close') {
     await this.request('/linebot_announcements', {
       method: 'POST',
       headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify({ group_id: groupId, event_date: eventDate })
+      body: JSON.stringify({ group_id: announcementKey(groupId, kind), event_date: eventDate })
     });
   }
 }

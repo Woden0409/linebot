@@ -36,7 +36,10 @@ global.fetch = async (url, options = {}) => {
 const { server, store, closeAndAnnounce } = require('../src/server');
 const { resolveCycle } = require('../src/schedule');
 
-const cycle = resolveCycle(new Date(), { gameWeekday: 2, timeZone: 'Asia/Taipei', deadlineDaysBefore: 1, deadlineHour: 12 });
+// 測試一律固定在「開放報名期間」的某個時間點，不受實際執行當天是否為空窗期影響。
+// 2026-09-10 10:00 台北（週四）→ 開放中，場次 2026-09-15。
+const OPEN_MOMENT = new Date('2026-09-10T02:00:00Z').getTime();
+const cycle = resolveCycle(new Date(OPEN_MOMENT), { gameWeekday: 2, timeZone: 'Asia/Taipei', deadlineDaysBefore: 1, deadlineHour: 12 });
 let origin;
 
 test.before(async () => {
@@ -78,7 +81,7 @@ async function webhook(events, expectedReplies = events.length) {
 const message = (userId, text) => ({
   type: 'message',
   replyToken: `r-${userId}-${Math.random().toString(36).slice(2)}`,
-  timestamp: Date.now(),
+  timestamp: OPEN_MOMENT,
   source: { type: 'group', groupId: 'G-test', userId },
   message: { type: 'text', text }
 });
@@ -96,8 +99,12 @@ test('健康檢查回報目前開放的場次與截止時間', async () => {
   const response = await realFetch(`${origin}/health`);
   const body = await response.json();
   assert.equal(response.status, 200);
-  assert.equal(body.openEvent, cycle.eventDate);
+  // /health 用的是真實時間，所以跟「現在」算出來的週期比
+  const live = resolveCycle(new Date(), { gameWeekday: 2, timeZone: 'Asia/Taipei', deadlineDaysBefore: 1, deadlineHour: 12 });
+  assert.equal(body.openEvent, live.eventDate);
+  assert.equal(body.registrationOpen, live.isOpen);
   assert.match(body.deadline, /12:00 Asia\/Taipei/);
+  assert.match(body.opensAt, /08:00 Asia\/Taipei/);
   assert.ok(body.db, '應回報資料庫保活狀態');
 });
 
@@ -171,6 +178,51 @@ test('額度快用完時自動改為不推播，避免超額', async () => {
   assert.match(result.results[0].reason, /額度不足/);
   assert.equal(pushes().length, 0);
   usage = 0;
+});
+
+test('週三開放通知：推播一次、不重送、還沒到時間不動作', async () => {
+  const { openAndAnnounce } = require('../src/server');
+  usage = 0;
+
+  // 週二 10:00 台北，還在空窗期
+  const early = await openAndAnnounce(new Date('2026-09-15T02:00:00Z'));
+  assert.match(early.skipped, /還沒到開放時間/);
+
+  calls.length = 0;
+  const first = await openAndAnnounce(new Date('2026-09-16T00:00:30Z')); // 週三 08:00:30
+  assert.equal(first.eventDate, '2026-09-22');
+  assert.equal(first.results[0].pushed, true);
+  assert.match(pushes()[0], /排球報名開始囉/);
+  assert.match(pushes()[0], /2026-09-22（週二）/);
+
+  calls.length = 0;
+  const second = await openAndAnnounce(new Date('2026-09-16T00:02:00Z'));
+  assert.equal(second.results[0].skipped, '已通知過');
+  assert.equal(pushes().length, 0);
+});
+
+test('額度不夠時優先保留給結算：開放通知先讓位', async () => {
+  const { openAndAnnounce } = require('../src/server');
+  // 剩 70 則、群組 20 人：結算單獨可推（70-20=50 ≥ 保留 40），
+  // 但開放通知要再替之後的結算留一次（70-20=50 < 40+20）→ 不推
+  usage = 130;
+  await store.update((state) => { state.announced = {}; });
+  calls.length = 0;
+  const result = await openAndAnnounce(new Date('2026-09-23T00:01:00Z'));
+  assert.equal(result.results[0].pushed, false);
+  assert.match(result.results[0].reason, /需保留 60 則/);
+  assert.equal(pushes().length, 0);
+
+  const close = await closeAndAnnounce(cycle.eventDate);
+  assert.equal(close.results[0].pushed, true, '同樣額度下結算仍會送出');
+  usage = 0;
+});
+
+test('排程可用 x-task-key header 驗證，網址不必帶密鑰', async () => {
+  const ok = await realFetch(`${origin}/tasks/open`, { headers: { 'x-task-key': 'task-key' } });
+  assert.equal(ok.status, 200);
+  const bad = await realFetch(`${origin}/tasks/open`, { headers: { 'x-task-key': 'nope' } });
+  assert.equal(bad.status, 401);
 });
 
 test('結算端點需要 TASK_KEY', async () => {

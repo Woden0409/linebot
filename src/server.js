@@ -2,7 +2,7 @@ const http = require('node:http');
 const crypto = require('node:crypto');
 const { createStore } = require('./store');
 const { resolveCycle, formatEventDate } = require('./schedule');
-const { handleText, formatList, help } = require('./bot');
+const { handleText, formatList, help, openAnnouncement } = require('./bot');
 const { startKeepAlive } = require('./keepalive');
 
 const config = {
@@ -14,6 +14,8 @@ const config = {
   timeZone: process.env.TIME_ZONE || 'Asia/Taipei',
   deadlineDaysBefore: Number(process.env.DEADLINE_DAYS_BEFORE || 1),
   deadlineHour: Number(process.env.DEADLINE_HOUR || 12),
+  openWeekday: Number(process.env.OPEN_WEEKDAY || 3),
+  openHour: Number(process.env.OPEN_HOUR || 8),
   taskKey: process.env.TASK_KEY,
   pushAnnounce: process.env.PUSH_ANNOUNCE !== 'false',
   quotaReserve: Number(process.env.QUOTA_RESERVE || 40),
@@ -27,7 +29,9 @@ const cycleOptions = {
   gameWeekday: config.gameWeekday,
   timeZone: config.timeZone,
   deadlineDaysBefore: config.deadlineDaysBefore,
-  deadlineHour: config.deadlineHour
+  deadlineHour: config.deadlineHour,
+  openWeekday: config.openWeekday,
+  openHour: config.openHour
 };
 
 async function lineApi(pathname, options = {}) {
@@ -55,8 +59,9 @@ async function reply(replyToken, text) {
   });
 }
 
-// push 按「群組人數」計費，只在每週結算時用一次，而且先確認額度夠。
-async function pushWithQuotaGuard(groupId, text) {
+// push 按「群組人數」計費，每週只在開放報名與截止結算各推一次，而且先確認額度夠。
+// reserveExtraPushes：額外保留幾次推播的額度（開放通知會替之後的結算通知預留一次）。
+async function pushWithQuotaGuard(groupId, text, { reserveExtraPushes = 0 } = {}) {
   const [quota, consumption, members] = await Promise.all([
     lineApi('/v2/bot/message/quota'),
     lineApi('/v2/bot/message/quota/consumption'),
@@ -65,8 +70,9 @@ async function pushWithQuotaGuard(groupId, text) {
   const cost = members.count || 1;
   if (quota.type === 'limited') {
     const remaining = quota.value - consumption.totalUsage;
-    if (remaining - cost < config.quotaReserve) {
-      return { pushed: false, reason: `額度不足：剩 ${remaining} 則，本次需 ${cost} 則，保留下限 ${config.quotaReserve} 則`, cost, remaining };
+    const floor = config.quotaReserve + cost * reserveExtraPushes;
+    if (remaining - cost < floor) {
+      return { pushed: false, reason: `額度不足：剩 ${remaining} 則，本次需 ${cost} 則，需保留 ${floor} 則`, cost, remaining };
     }
   }
   await lineApi('/v2/bot/message/push', {
@@ -110,16 +116,16 @@ async function processEvent(event) {
   if (message) await reply(event.replyToken, message);
 }
 
-// 每週一 12:05（台北）由外部排程呼叫：鎖定名單並推播最終結果。
-async function closeAndAnnounce(overrideDate) {
-  const cycle = resolveCycle(new Date(), cycleOptions);
+// 每週一 12:00（台北）由 cron-job.org 呼叫：鎖定名單並推播最終結果。
+async function closeAndAnnounce(overrideDate, now = new Date()) {
+  const cycle = resolveCycle(now, cycleOptions);
   const eventDate = overrideDate || cycle.closedEvent;
   if (!eventDate) return { ok: true, skipped: '目前不在截止時段，未做任何事', now: new Date().toISOString() };
 
   const groups = await store.listGroups(eventDate);
   const results = [];
   for (const groupId of groups) {
-    if (await store.wasAnnounced(groupId, eventDate)) {
+    if (await store.wasAnnounced(groupId, eventDate, 'close')) {
       results.push({ groupId, skipped: '已結算過' });
       continue;
     }
@@ -133,10 +139,41 @@ async function closeAndAnnounce(overrideDate) {
     if (config.pushAnnounce) {
       outcome = await pushWithQuotaGuard(groupId, text).catch((error) => ({ pushed: false, reason: error.message }));
     }
-    if (outcome.pushed) await store.markAnnounced(groupId, eventDate);
+    if (outcome.pushed) await store.markAnnounced(groupId, eventDate, 'close');
     results.push({ groupId, total: entries.length, confirmed: Math.min(entries.length, config.maxPlayers), ...outcome, text });
   }
   return { ok: true, eventDate, groups: results.length, results };
+}
+
+// 每週三 08:00（台北）由 cron-job.org 呼叫：通知群組下一場開放報名。
+// 開放通知的重要性低於結算通知，所以推播前會替之後的結算多保留一次額度。
+async function openAndAnnounce(now = new Date()) {
+  const cycle = resolveCycle(now, cycleOptions);
+  if (!cycle.isOpen) return { ok: true, skipped: '還沒到開放時間，未做任何事', opensAt: `${cycle.openDate} ${cycle.openHour}:00`, now: new Date().toISOString() };
+
+  const eventDate = cycle.eventDate;
+  const text = openAnnouncement({ maxPlayers: config.maxPlayers, gameWeekday: config.gameWeekday, cycle });
+  const results = [];
+  for (const groupId of await store.listKnownGroups()) {
+    if (await store.wasAnnounced(groupId, eventDate, 'open')) {
+      results.push({ groupId, skipped: '已通知過' });
+      continue;
+    }
+    let outcome = { pushed: false, reason: 'PUSH_ANNOUNCE=false' };
+    if (config.pushAnnounce) {
+      outcome = await pushWithQuotaGuard(groupId, text, { reserveExtraPushes: 1 })
+        .catch((error) => ({ pushed: false, reason: error.message }));
+    }
+    if (outcome.pushed) await store.markAnnounced(groupId, eventDate, 'open');
+    results.push({ groupId, ...outcome });
+  }
+  return { ok: true, eventDate, groups: results.length, results, text };
+}
+
+// 排程服務放在 header（x-task-key），手動測試可以用網址參數 ?key=。
+function authorizedTask(request, url) {
+  const key = request.headers['x-task-key'] || url.searchParams.get('key');
+  return Boolean(config.taskKey) && key === config.taskKey;
 }
 
 // Supabase 免費專案連續 7 天沒有存取就會被暫停，會讓機器人整個掛掉。
@@ -178,7 +215,9 @@ const server = http.createServer((request, response) => {
     touchDatabase();
     return send(response, 200, {
       ok: true,
+      registrationOpen: cycle.isOpen,
       openEvent: cycle.eventDate,
+      opensAt: `${cycle.openDate} ${String(cycle.openHour).padStart(2, '0')}:00 ${config.timeZone}`,
       deadline: `${cycle.deadlineDate} ${String(cycle.deadlineHour).padStart(2, '0')}:00 ${config.timeZone}`,
       db: dbHealth.lastOkAt
         ? { lastOkAt: dbHealth.lastOkAt, ...(dbHealth.lastError ? { lastError: dbHealth.lastError } : {}) }
@@ -186,9 +225,13 @@ const server = http.createServer((request, response) => {
     });
   }
 
-  if (request.method === 'GET' && url.pathname === '/tasks/close') {
-    if (!config.taskKey || url.searchParams.get('key') !== config.taskKey) return send(response, 401, { ok: false, error: 'unauthorized' });
-    return closeAndAnnounce(url.searchParams.get('date'))
+  const tasks = {
+    '/tasks/close': () => closeAndAnnounce(url.searchParams.get('date')),
+    '/tasks/open': () => openAndAnnounce()
+  };
+  if (request.method === 'GET' && tasks[url.pathname]) {
+    if (!authorizedTask(request, url)) return send(response, 401, { ok: false, error: 'unauthorized' });
+    return tasks[url.pathname]()
       .then((result) => send(response, 200, result))
       .catch((error) => { console.error(error); send(response, 500, { ok: false, error: error.message }); });
   }
@@ -227,4 +270,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { server, store, dbHealth, verifySignature, closeAndAnnounce, config };
+module.exports = { server, store, dbHealth, verifySignature, closeAndAnnounce, openAndAnnounce, config };

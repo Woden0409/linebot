@@ -42,6 +42,50 @@ test('報名週期在週一 12:00 準時切換到下一場', () => {
   assert.equal(onGameDay.eventDate, '2026-09-15');
 });
 
+test('截止後到週三 08:00 是空窗期，週三 08:00 準時開放下一場', () => {
+  // 週一 12:00 截止 → 空窗期開始
+  const closed = resolveCycle(new Date('2026-09-14T04:00:00Z'), OPTIONS);
+  assert.equal(closed.isOpen, false);
+  assert.equal(closed.closedEvent, '2026-09-15', '剛結算的是 9/15 那場');
+  assert.equal(closed.eventDate, '2026-09-22', '下一場是 9/22');
+  assert.equal(closed.openDate, '2026-09-16', '下一場 9/16（週三）開放');
+
+  // 比賽日當天、週三 07:59 都還在空窗期
+  assert.equal(resolveCycle(new Date('2026-09-15T10:00:00Z'), OPTIONS).isOpen, false);
+  assert.equal(resolveCycle(new Date('2026-09-15T23:59:00Z'), OPTIONS).isOpen, false);
+
+  // 週三 08:00 準時開放
+  const opened = resolveCycle(new Date('2026-09-16T00:00:00Z'), OPTIONS);
+  assert.equal(opened.isOpen, true);
+  assert.equal(opened.eventDate, '2026-09-22');
+  assert.equal(opened.closedEvent, null);
+
+  // 週一 11:59 仍開放，12:00 關閉
+  assert.equal(resolveCycle(new Date('2026-09-21T03:59:00Z'), OPTIONS).isOpen, true);
+  assert.equal(resolveCycle(new Date('2026-09-21T04:00:00Z'), OPTIONS).isOpen, false);
+});
+
+test('空窗期不能報名也不能取消，聊天照樣沉默', async () => {
+  const store = freshStore();
+  const closed = resolveCycle(new Date('2026-09-14T06:00:00Z'), OPTIONS); // 週一 14:00
+  await store.register('g1', '2026-09-15', { userId: 'u1', name: '王小明' });
+  const base = context({ store, cycle: closed });
+
+  for (const text of ['報名 陳大文', '報名', '報名陳大文']) {
+    const reply = await handleText({ ...base, userId: 'u2', text });
+    assert.match(reply, /本週報名已截止/, `「${text}」應提示尚未開放`);
+    assert.match(reply, /開放　　2026-09-16（週三）08:00/);
+  }
+  for (const text of ['取消', '取消 王小明', '取消全部']) {
+    assert.match(await handleText({ ...base, userId: 'u1', text }), /名單已確定無法取消/);
+  }
+  assert.equal(await handleText({ ...base, userId: 'u1', text: '報名截止了嗎' }), null);
+
+  // 名單沒有被動到，下一場也沒有被寫入
+  assert.equal((await store.getEntries('g1', '2026-09-15')).length, 1);
+  assert.equal((await store.getEntries('g1', '2026-09-22')).length, 0);
+});
+
 test('只有指令會得到回應，一般聊天完全沉默', async () => {
   const base = context();
   assert.equal(await handleText({ ...base, userId: 'u1', text: '今天天氣真好' }), null);
@@ -230,5 +274,6 @@ test('名單同時顯示已截止的最終名單與下一場', async () => {
   await store.register('g1', closedCycle.closedEvent, { userId: 'u1', name: '王小明' });
   const message = await handleText({ ...context({ store, cycle: closedCycle }), userId: 'u2', text: '名單' });
   assert.match(message, /報名已截止（最終名單）/);
-  assert.match(message, /下一場開放報名中/);
+  assert.match(message, /目前不開放報名/);
+  assert.match(message, /開放　　2026-09-09（週三）08:00/);
 });

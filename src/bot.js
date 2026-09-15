@@ -1,4 +1,4 @@
-const { describeDeadline, formatEventDate } = require('./schedule');
+const { describeDeadline, describeOpen, formatEventDate } = require('./schedule');
 
 // 英文全名（含空格）會比中文名長不少，所以放寬到 30。
 const MAX_NAME_LENGTH = 30;
@@ -35,7 +35,7 @@ function formatList(entries, { eventDate, maxPlayers, gameWeekday, cycle, closed
   const waiting = entries.slice(maxPlayers);
   const lines = [
     `🏐 ${formatEventDate(eventDate, gameWeekday)}排球`,
-    closed ? '📌 報名已截止（最終名單）' : `⏰ 截止 ${describeDeadline(cycle, gameWeekday)}`,
+    closed ? '📌 報名已截止（最終名單）' : `⏰ 截止 ${describeDeadline(cycle)}`,
     `👥 正取 ${confirmed.length}/${maxPlayers}${waiting.length ? `　備取 ${waiting.length}` : ''}`,
     DIVIDER
   ];
@@ -46,13 +46,53 @@ function formatList(entries, { eventDate, maxPlayers, gameWeekday, cycle, closed
   return lines.join('\n');
 }
 
+function schedulePanel({ maxPlayers, gameWeekday, cycle }) {
+  if (!cycle.isOpen) {
+    return [
+      '🔒 目前不開放報名',
+      '',
+      `📅 下一場　${formatEventDate(cycle.eventDate, gameWeekday)}`,
+      `🟢 開放　　${describeOpen(cycle)}`,
+      `⏰ 截止　　${describeDeadline(cycle)}`,
+      `👥 名額　　${maxPlayers} 人`
+    ];
+  }
+  return [
+    `📅 本場　${formatEventDate(cycle.eventDate, gameWeekday)}`,
+    `👥 名額　${maxPlayers} 人`,
+    `⏰ 截止　${describeDeadline(cycle)}`
+  ];
+}
+
+function notOpenMessage({ maxPlayers, gameWeekday, cycle }) {
+  return [
+    '🔒 本週報名已截止，名單已確定。',
+    '',
+    ...schedulePanel({ maxPlayers, gameWeekday, cycle }).slice(2),
+    '',
+    '開放時間到了再報名喔！'
+  ].join('\n');
+}
+
+function openAnnouncement({ maxPlayers, gameWeekday, cycle }) {
+  return [
+    '🟢 排球報名開始囉！',
+    '',
+    `📅 本場　${formatEventDate(cycle.eventDate, gameWeekday)}`,
+    `👥 名額　${maxPlayers} 人`,
+    `⏰ 截止　${describeDeadline(cycle)}`,
+    '',
+    DIVIDER,
+    '「報名 你的名字」就能報名',
+    '「幫助」看完整說明'
+  ].join('\n');
+}
+
 function help({ maxPlayers, gameWeekday, cycle }) {
   return [
     '🏐 每週排球報名',
     '',
-    `📅 本場　${formatEventDate(cycle.eventDate, gameWeekday)}`,
-    `👥 名額　${maxPlayers} 人`,
-    `⏰ 截止　${describeDeadline(cycle, gameWeekday)}`,
+    ...schedulePanel({ maxPlayers, gameWeekday, cycle }),
     '',
     DIVIDER,
     '怎麼報名',
@@ -100,16 +140,27 @@ async function handleText({ text, userId, groupId, store, cycle, maxPlayers, gam
   if (HELP.test(input)) return help({ maxPlayers, gameWeekday, cycle });
 
   if (LIST.test(input)) {
-    const entries = await store.getEntries(groupId, eventDate);
-    let message = formatList(entries, context);
-    if (cycle.closedEvent) {
+    if (!cycle.isOpen) {
       const finalEntries = await store.getEntries(groupId, cycle.closedEvent);
-      if (finalEntries.length) {
-        const final = formatList(finalEntries, { ...context, eventDate: cycle.closedEvent, closed: true });
-        message = `${final}\n\n\n下一場開放報名中\n\n${message}`;
-      }
+      const final = formatList(finalEntries, { ...context, eventDate: cycle.closedEvent, closed: true });
+      return `${final}\n\n\n${schedulePanel({ maxPlayers, gameWeekday, cycle }).join('\n')}`;
     }
-    return message;
+    return formatList(await store.getEntries(groupId, eventDate), context);
+  }
+
+  // 空窗期（截止後到下一場開放前）：已結算的名單不能再動，下一場也還沒開放。
+  if (!cycle.isOpen) {
+    const missedSignUp = input.match(SIGN_UP_NO_SPACE);
+    const missedCancelWhileClosed = input.match(CANCEL_NO_SPACE);
+    const cancelIntent = CANCEL_ALL.test(input) || CANCEL_NAMED.test(input) || CANCEL_BARE.test(input)
+      || Boolean(missedCancelWhileClosed && looksLikeName(missedCancelWhileClosed[1]));
+    const signUpIntent = SIGN_UP_NAMED.test(input) || SIGN_UP_BARE.test(input)
+      || Boolean(missedSignUp && looksLikeName(missedSignUp[1]));
+    if (cancelIntent) {
+      return `${notOpenMessage({ maxPlayers, gameWeekday, cycle })}\n\n名單已確定無法取消，臨時不能來請直接聯絡主辦。`;
+    }
+    if (signUpIntent) return notOpenMessage({ maxPlayers, gameWeekday, cycle });
+    return null;
   }
 
   const missedCancel = input.match(CANCEL_NO_SPACE);
@@ -185,4 +236,4 @@ async function handleText({ text, userId, groupId, store, cycle, maxPlayers, gam
   return `${head}${mine}\n\n${formatList(result.entries, context)}`;
 }
 
-module.exports = { handleText, formatList, help };
+module.exports = { handleText, formatList, help, openAnnouncement };
