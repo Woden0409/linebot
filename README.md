@@ -46,10 +46,19 @@
 
 ## 時間規則
 
-- 比賽日：每週二（`GAME_WEEKDAY=2`）
-- 報名截止：比賽前一天 12:00 台灣時間 → **週一 12:00**（`DEADLINE_DAYS_BEFORE=1`、`DEADLINE_HOUR=12`）
-- 週一 12:00 一到就切換場次：之後報名的人自動算下一週，不會混進已結算的名單
+| 時間（台灣） | 發生什麼 | 設定 |
+| --- | --- | --- |
+| **週三 08:00** | 開放下一場報名，群組收到「🟢 排球報名開始囉！」 | `OPEN_WEEKDAY=3`、`OPEN_HOUR=8` |
+| **週一 12:00** | 報名截止，群組收到最終名單 | `DEADLINE_DAYS_BEFORE=1`、`DEADLINE_HOUR=12` |
+| 週一 12:00 ～ 週三 08:00 | 空窗期：不收報名、也不能取消（名單已確定） | — |
+| 週二 | 比賽日 | `GAME_WEEKDAY=2` |
+
+- 空窗期打「報名」「取消」會回覆下一場的開放與截止時間；打「名單」看得到剛結算的最終名單
 - 名額 21 人（`MAX_PLAYERS`），額滿自動排備取，有人取消時依報名順序自動遞補
+
+兩則通知都由 **cron-job.org** 準時觸發（各在整點與 2 分鐘後各打一次，端點冪等不會重複推播）。
+GitHub Actions 的 `weekly-close.yml` 只剩備援角色 —— 它實測曾延遲 5.5 小時（12:05 排程、17:41 才跑），
+不能當主要排程。
 
 ## 免費額度怎麼算（重要）
 
@@ -59,9 +68,13 @@ LINE 免費版每月 **200 則**，而且 **push 是按收訊人數計費**：�
 | --- | --- |
 | 群組有人輸入指令、機器人回覆（reply） | **不計費、無上限** |
 | 你自己測試訊息 | 同上，**不計費** |
-| 週一 12:00 自動推播最終名單（push） | 20 人群組 = 20 則／次，一個月約 80～100 則 |
+| 週三 08:00 開放報名通知（push） | 20 人群組 = 20 則／次 |
+| 週一 12:00 最終名單通知（push） | 20 人群組 = 20 則／次 |
 
-所以日常互動全部走 reply，**只有每週結算那一次**用 push，一個月約用掉一半額度，剩約 100 則備用。
+所以日常互動全部走 reply，**每週只推兩次**。20 人群組一個月約 160～200 則，**會很接近 200 的上限**。
+
+額度不夠時的優先順序：**結算名單 > 開放通知**。開放通知推播前會替之後的結算多保留一次額度，
+所以月底額度吃緊時，被跳過的會是開放通知（大家照樣可以報名，只是沒收到提醒），最終名單一定優先送出。
 
 程式內建兩道保護：
 
@@ -86,7 +99,8 @@ curl -H "Authorization: Bearer $LINE_CHANNEL_ACCESS_TOKEN" https://api.line.me/v
 | Webhook URL | https://line-signup-bot-fa1z.onrender.com/webhook |
 | 保活時段 | **全天 24 小時**（31 天的月份約 744 instance 小時，上限 750 由整個 workspace 共用） |
 | 保活 | cron-job.org job `linebot-keepalive`（每 10 分鐘）＋服務自我 ping ＋ GitHub Actions 每小時備援 |
-| 每週結算 | GitHub Actions `weekly-close.yml`（週一 12:05 台北） |
+| 每週結算 | cron-job.org `linebot-close`（週一 12:00、12:02 台北）；GitHub Actions `weekly-close.yml` 為備援 |
+| 開放報名 | cron-job.org `linebot-open`（週三 08:00、08:02 台北） |
 
 > 服務網址在 workflow 裡是讀 repo variable **`SERVICE_URL`**（Settings → Secrets and variables → Actions → Variables），
 > 換部署位置只要改那一個值。搬遷步驟見 [`MIGRATION.md`](MIGRATION.md)。
@@ -157,7 +171,7 @@ Supabase 免費專案**連續 7 天沒有任何存取就會被暫停**，會讓�
 
 `db.lastError` 有值就代表資料庫連線出問題。
 
-每週結算由 `weekly-close.yml` 負責，cron `5 4 * * 1`（UTC）= **每週一 12:05 台北時間**，
+每週結算主要由 cron-job.org 在週一 12:00 觸發；`weekly-close.yml`（cron `5 4 * * 1` UTC）僅為備援，
 `TASK_KEY` 存在 repo secret。端點是冪等的，所以 GitHub 排程延遲不影響正確性。
 
 手動觸發（例如臨時要重新結算）：
