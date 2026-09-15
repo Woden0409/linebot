@@ -141,10 +141,19 @@ function help({ maxPlayers, gameWeekday, cycle }) {
 }
 
 // 時間表是預設值；主辦人手動截止或開放過的場次，以手動為準。
+// 一場一定是先開放、後截止，所以要依序反覆套用：提前開放的場次也可能已被手動截止，
+// 截止後視角跳到下一場，下一場又可能已被提前開放。
 async function effectiveCycle(cycle, store, groupId) {
   let current = cycle;
-  if (current.isOpen && await store.wasAnnounced(groupId, current.eventDate, 'close')) current = closeEarly(current);
-  if (!current.isOpen && await store.wasAnnounced(groupId, current.eventDate, 'open')) current = openEarly(current);
+  for (let step = 0; step < 4; step += 1) {
+    if (!current.isOpen && await store.wasAnnounced(groupId, current.eventDate, 'open')) {
+      current = openEarly(current);
+    } else if (current.isOpen && await store.wasAnnounced(groupId, current.eventDate, 'close')) {
+      current = closeEarly(current);
+    } else {
+      break;
+    }
+  }
   return current;
 }
 

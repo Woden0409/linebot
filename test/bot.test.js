@@ -124,6 +124,27 @@ test('主辦人打「開放」：提前開放下一場並用回覆通知', async
   assert.equal((await store.getEntries('g1', '2026-09-22')).length, 1);
 });
 
+test('提前開放後再截止同一場，截止要生效；之後還能提前開放下一場', async () => {
+  const store = freshStore();
+  const closed = resolveCycle(new Date('2026-09-15T02:00:00Z'), OPTIONS); // 週二 10:00，空窗期
+  const base = { store, groupId: 'g1', maxPlayers: 21, gameWeekday: 2, cycle: closed };
+
+  await handleText({ ...base, userId: 'admin', isAdmin: true, text: '開放' });
+  assert.match(await handleText({ ...base, userId: 'u1', text: '報名 甲' }), /報名成功/);
+
+  const final = await handleText({ ...base, userId: 'admin', isAdmin: true, text: '截止' });
+  assert.match(final, /2026-09-22（週二）排球/);
+  assert.match(final, /1\. 甲/);
+
+  assert.match(await handleText({ ...base, userId: 'u2', text: '報名 乙' }), /本週報名已截止/);
+  assert.equal((await store.getEntries('g1', '2026-09-22')).length, 1, '截止後不能再報進 9/22');
+
+  // 再提前開放 → 是 9/29 那場
+  assert.match(await handleText({ ...base, userId: 'admin', isAdmin: true, text: '開放' }), /2026-09-29（週二）/);
+  assert.match(await handleText({ ...base, userId: 'u2', text: '報名 乙' }), /報名成功/);
+  assert.equal((await store.getEntries('g1', '2026-09-29')).length, 1);
+});
+
 test('一般成員不能截止或開放', async () => {
   const store = freshStore();
   const open = resolveCycle(new Date('2026-09-19T02:00:00Z'), OPTIONS);
