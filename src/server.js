@@ -17,6 +17,8 @@ const config = {
   openWeekday: Number(process.env.OPEN_WEEKDAY || 3),
   openHour: Number(process.env.OPEN_HOUR || 8),
   taskKey: process.env.TASK_KEY,
+  // 可以用「截止」「開放」的 LINE 使用者 ID，多位用逗號分隔。
+  adminUserIds: String(process.env.ADMIN_USER_IDS || '').split(',').map((id) => id.trim()).filter(Boolean),
   pushAnnounce: process.env.PUSH_ANNOUNCE !== 'false',
   quotaReserve: Number(process.env.QUOTA_RESERVE || 40),
   selfUrl: process.env.SELF_URL,
@@ -111,6 +113,7 @@ async function processEvent(event) {
     userId,
     groupId,
     store,
+    isAdmin: config.adminUserIds.includes(userId),
     displayName: bare ? await memberDisplayName(event.source) : ''
   });
   if (message) await reply(event.replyToken, message);

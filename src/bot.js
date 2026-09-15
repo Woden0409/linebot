@@ -1,4 +1,4 @@
-const { describeDeadline, describeOpen, formatEventDate } = require('./schedule');
+const { closeEarly, openEarly, describeDeadline, describeOpen, formatEventDate } = require('./schedule');
 
 // 英文全名（含空格）會比中文名長不少，所以放寬到 30。
 const MAX_NAME_LENGTH = 30;
@@ -11,6 +11,9 @@ const CANCEL_ALL = /^(?:取消全部|全部取消|取消所有)$/;
 const CANCEL_BARE = /^(?:取消|取消報名)$/;
 const CANCEL_NAMED = /^(?:取消|取消報名)\s+(.+)$/;
 const LIST = /^(?:名單|報名名單|查名單|統計)$/;
+// 主辦人指令：用「回覆」公布，不花推播額度。
+const CLOSE_NOW = /^(?:截止|截止報名|結束報名)$/;
+const OPEN_NOW = /^(?:開放|開放報名|開始報名)$/;
 const HELP = /^(?:幫助|說明|指令|help|[?？])$/i;
 
 // 忘記空格時（「報名王小明」）給提示，但不能去回應正常聊天（「報名截止了嗎」）。
@@ -126,14 +129,57 @@ function help({ maxPlayers, gameWeekday, cycle }) {
     '「名單」查看目前名單',
     '「幫助」顯示這則說明',
     '',
+    DIVIDER,
+    '主辦人專用',
+    DIVIDER,
+    '「截止」立刻截止並公布最終名單',
+    '「開放」開放下一場並通知大家',
+    '',
     '額滿會自動排備取，有人取消時依序遞補。',
     '其他訊息機器人不會回應，聊天不受影響。'
   ].join('\n');
 }
 
+// 時間表是預設值；主辦人手動截止或開放過的場次，以手動為準。
+async function effectiveCycle(cycle, store, groupId) {
+  let current = cycle;
+  if (current.isOpen && await store.wasAnnounced(groupId, current.eventDate, 'close')) current = closeEarly(current);
+  if (!current.isOpen && await store.wasAnnounced(groupId, current.eventDate, 'open')) current = openEarly(current);
+  return current;
+}
+
+function finalListMessage(entries, context) {
+  const list = formatList(entries, { ...context, eventDate: context.cycle.closedEvent, closed: true });
+  return `📋 報名截止，最終名單如下\n\n${list}\n\n\n${schedulePanel(context).join('\n')}`;
+}
+
 // 回傳 null 代表「不是指令」，機器人保持沉默，不干擾群組聊天。
-async function handleText({ text, userId, groupId, store, cycle, maxPlayers, gameWeekday, displayName }) {
+async function handleText({ text, userId, groupId, store, cycle: scheduled, maxPlayers, gameWeekday, displayName, isAdmin = false }) {
   const input = normalize(text);
+  if (!input) return null;
+
+  if (CLOSE_NOW.test(input) || OPEN_NOW.test(input)) {
+    if (!isAdmin) return '只有主辦人可以使用「截止」和「開放」。';
+    let cycle = await effectiveCycle(scheduled, store, groupId);
+    const base = { maxPlayers, gameWeekday };
+
+    if (CLOSE_NOW.test(input)) {
+      // 還開著就先關；已經過了截止時間就只是公布最終名單。
+      if (cycle.isOpen) {
+        await store.markAnnounced(groupId, cycle.eventDate, 'close');
+        cycle = closeEarly(cycle);
+      }
+      return finalListMessage(await store.getEntries(groupId, cycle.closedEvent), { ...base, cycle });
+    }
+
+    if (!cycle.isOpen) {
+      await store.markAnnounced(groupId, cycle.eventDate, 'open');
+      cycle = openEarly(cycle);
+    }
+    return openAnnouncement({ ...base, cycle });
+  }
+
+  const cycle = await effectiveCycle(scheduled, store, groupId);
   const eventDate = cycle.eventDate;
   const context = { eventDate, maxPlayers, gameWeekday, cycle, closed: false };
 

@@ -86,6 +86,64 @@ test('空窗期不能報名也不能取消，聊天照樣沉默', async () => {
   assert.equal((await store.getEntries('g1', '2026-09-22')).length, 0);
 });
 
+test('主辦人打「截止」：提前關閉並用回覆公布最終名單', async () => {
+  const store = freshStore();
+  const open = resolveCycle(new Date('2026-09-19T02:00:00Z'), OPTIONS); // 週六 10:00，9/22 那場開放中
+  const base = { store, groupId: 'g1', maxPlayers: 21, gameWeekday: 2, cycle: open };
+  await handleText({ ...base, userId: 'u1', text: '報名 王小明' });
+  await handleText({ ...base, userId: 'u2', text: '報名 陳大文' });
+
+  const reply = await handleText({ ...base, userId: 'admin', isAdmin: true, text: '截止' });
+  assert.match(reply, /報名截止，最終名單如下/);
+  assert.match(reply, /2026-09-22（週二）排球/);
+  assert.match(reply, /1\. 王小明/);
+  assert.match(reply, /2\. 陳大文/);
+  assert.match(reply, /開放　　2026-09-23（週三）08:00/, '附上下一場開放時間');
+
+  // 截止後（時間上本來還開著）報名與取消都被擋
+  assert.match(await handleText({ ...base, userId: 'u3', text: '報名 林小華' }), /本週報名已截止/);
+  assert.match(await handleText({ ...base, userId: 'u1', text: '取消' }), /名單已確定無法取消/);
+  assert.equal((await store.getEntries('g1', '2026-09-22')).length, 2);
+
+  // 再打一次「截止」只是重新公布，不會出錯
+  assert.match(await handleText({ ...base, userId: 'admin', isAdmin: true, text: '截止' }), /1\. 王小明/);
+});
+
+test('主辦人打「開放」：提前開放下一場並用回覆通知', async () => {
+  const store = freshStore();
+  const closed = resolveCycle(new Date('2026-09-15T02:00:00Z'), OPTIONS); // 週二 10:00，空窗期
+  const base = { store, groupId: 'g1', maxPlayers: 21, gameWeekday: 2, cycle: closed };
+
+  assert.match(await handleText({ ...base, userId: 'u1', text: '報名 王小明' }), /本週報名已截止/);
+
+  const reply = await handleText({ ...base, userId: 'admin', isAdmin: true, text: '開放' });
+  assert.match(reply, /排球報名開始囉/);
+  assert.match(reply, /2026-09-22（週二）/);
+
+  assert.match(await handleText({ ...base, userId: 'u1', text: '報名 王小明' }), /王小明 報名成功（第 1 位）/);
+  assert.equal((await store.getEntries('g1', '2026-09-22')).length, 1);
+});
+
+test('一般成員不能截止或開放', async () => {
+  const store = freshStore();
+  const open = resolveCycle(new Date('2026-09-19T02:00:00Z'), OPTIONS);
+  const base = { store, groupId: 'g1', maxPlayers: 21, gameWeekday: 2, cycle: open };
+
+  assert.match(await handleText({ ...base, userId: 'u1', text: '截止' }), /只有主辦人可以使用/);
+  assert.match(await handleText({ ...base, userId: 'u1', text: '開放' }), /只有主辦人可以使用/);
+  // 報名仍然開著
+  assert.match(await handleText({ ...base, userId: 'u1', text: '報名 王小明' }), /報名成功/);
+});
+
+test('手動截止只影響那一個群組', async () => {
+  const store = freshStore();
+  const open = resolveCycle(new Date('2026-09-19T02:00:00Z'), OPTIONS);
+  const common = { store, maxPlayers: 21, gameWeekday: 2, cycle: open };
+  await handleText({ ...common, groupId: 'g1', userId: 'admin', isAdmin: true, text: '截止' });
+  assert.match(await handleText({ ...common, groupId: 'g1', userId: 'u1', text: '報名 A' }), /本週報名已截止/);
+  assert.match(await handleText({ ...common, groupId: 'g2', userId: 'u1', text: '報名 A' }), /報名成功/);
+});
+
 test('只有指令會得到回應，一般聊天完全沉默', async () => {
   const base = context();
   assert.equal(await handleText({ ...base, userId: 'u1', text: '今天天氣真好' }), null);

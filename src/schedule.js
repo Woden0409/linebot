@@ -63,6 +63,23 @@ function resolveCycle(now, { gameWeekday, timeZone, deadlineDaysBefore, deadline
   };
 }
 
+// 主辦人手動「截止」：本場提前關閉，視角跳到下一場的空窗期。
+function closeEarly(cycle) {
+  return {
+    ...cycle,
+    eventDate: addDays(cycle.eventDate, 7),
+    deadlineDate: addDays(cycle.deadlineDate, 7),
+    openDate: addDays(cycle.openDate, 7),
+    isOpen: false,
+    closedEvent: cycle.eventDate
+  };
+}
+
+// 主辦人手動「開放」：還沒到開放時間也先開。
+function openEarly(cycle) {
+  return { ...cycle, isOpen: true, closedEvent: null };
+}
+
 function formatWhen(isoDate, hour) {
   return `${isoDate}（週${WEEKDAY_LABELS[weekdayOf(isoDate)]}）${String(hour).padStart(2, '0')}:00`;
 }
@@ -79,4 +96,4 @@ function formatEventDate(isoDate, gameWeekday) {
   return `${isoDate}（週${WEEKDAY_LABELS[gameWeekday || weekdayOf(isoDate)]}）`;
 }
 
-module.exports = { resolveCycle, addDays, localParts, describeDeadline, describeOpen, formatEventDate };
+module.exports = { resolveCycle, closeEarly, openEarly, addDays, localParts, describeDeadline, describeOpen, formatEventDate };
