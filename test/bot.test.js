@@ -86,63 +86,72 @@ test('空窗期不能報名也不能取消，聊天照樣沉默', async () => {
   assert.equal((await store.getEntries('g1', '2026-09-22')).length, 0);
 });
 
-test('主辦人打「截止」：提前關閉並用回覆公布最終名單', async () => {
+test('截止時間還沒到，主辦人不能打「截止」', async () => {
   const store = freshStore();
   const open = resolveCycle(new Date('2026-09-19T02:00:00Z'), OPTIONS); // 週六 10:00，9/22 那場開放中
   const base = { store, groupId: 'g1', maxPlayers: 21, gameWeekday: 2, cycle: open };
   await handleText({ ...base, userId: 'u1', text: '報名 王小明' });
-  await handleText({ ...base, userId: 'u2', text: '報名 陳大文' });
+
+  const reply = await handleText({ ...base, userId: 'admin', isAdmin: true, text: '截止' });
+  assert.match(reply, /還沒到截止時間，現在不能截止/);
+  assert.match(reply, /2026-09-21（週一）12:00 會自動截止/);
+
+  // 報名照常開著
+  assert.match(await handleText({ ...base, userId: 'u2', text: '報名 陳大文' }), /報名成功（第 2 位）/);
+});
+
+test('截止時間過後，主辦人打「截止」公布最終名單', async () => {
+  const store = freshStore();
+  await store.register('g1', '2026-09-22', { userId: 'u1', name: '王小明' });
+  await store.register('g1', '2026-09-22', { userId: 'u2', name: '陳大文' });
+  const closed = resolveCycle(new Date('2026-09-21T04:00:00Z'), OPTIONS); // 週一 12:00
+  const base = { store, groupId: 'g1', maxPlayers: 21, gameWeekday: 2, cycle: closed };
 
   const reply = await handleText({ ...base, userId: 'admin', isAdmin: true, text: '截止' });
   assert.match(reply, /報名截止，最終名單如下/);
   assert.match(reply, /2026-09-22（週二）排球/);
   assert.match(reply, /1\. 王小明/);
-  assert.match(reply, /2\. 陳大文/);
+  assert.match(reply, /❌ 未達 15 人成團（差 13 人）/);
   assert.match(reply, /開放　　2026-09-23（週三）08:00/, '附上下一場開放時間');
 
-  // 截止後（時間上本來還開著）報名與取消都被擋
-  assert.match(await handleText({ ...base, userId: 'u3', text: '報名 林小華' }), /本週報名已截止/);
-  assert.match(await handleText({ ...base, userId: 'u1', text: '取消' }), /名單已確定無法取消/);
-  assert.equal((await store.getEntries('g1', '2026-09-22')).length, 2);
-
-  // 再打一次「截止」只是重新公布，不會出錯
+  // 可以重複公布
   assert.match(await handleText({ ...base, userId: 'admin', isAdmin: true, text: '截止' }), /1\. 王小明/);
 });
 
-test('主辦人打「開放」：提前開放下一場並用回覆通知', async () => {
+test('週二 23:00 前不能打「開放」，23:00 起可以', async () => {
   const store = freshStore();
-  const closed = resolveCycle(new Date('2026-09-15T02:00:00Z'), OPTIONS); // 週二 10:00，空窗期
-  const base = { store, groupId: 'g1', maxPlayers: 21, gameWeekday: 2, cycle: closed };
+  const common = { store, groupId: 'g1', maxPlayers: 21, gameWeekday: 2 };
 
-  assert.match(await handleText({ ...base, userId: 'u1', text: '報名 王小明' }), /本週報名已截止/);
+  // 週一 15:17（跟實際誤觸的時間一樣）→ 不行
+  const monday = { ...common, cycle: resolveCycle(new Date('2026-09-21T07:17:00Z'), OPTIONS) };
+  const denied = await handleText({ ...monday, userId: 'admin', isAdmin: true, text: '開放' });
+  assert.match(denied, /還不能開放下一場/);
+  assert.match(denied, /最早　2026-09-22（週二）23:00 起可以打「開放」/);
+  assert.match(denied, /自動　2026-09-23（週三）08:00 會自動開放/);
+  assert.match(await handleText({ ...monday, userId: 'u1', text: '報名 王小明' }), /本週報名已截止/);
 
-  const reply = await handleText({ ...base, userId: 'admin', isAdmin: true, text: '開放' });
-  assert.match(reply, /排球報名開始囉/);
-  assert.match(reply, /2026-09-22（週二）/);
+  // 週二 22:59 → 還是不行
+  const before = { ...common, cycle: resolveCycle(new Date('2026-09-22T14:59:00Z'), OPTIONS) };
+  assert.match(await handleText({ ...before, userId: 'admin', isAdmin: true, text: '開放' }), /還不能開放下一場/);
 
-  assert.match(await handleText({ ...base, userId: 'u1', text: '報名 王小明' }), /王小明 報名成功（第 1 位）/);
-  assert.equal((await store.getEntries('g1', '2026-09-22')).length, 1);
+  // 週二 23:00 → 可以，開的是 9/29 那場
+  const night = { ...common, cycle: resolveCycle(new Date('2026-09-22T15:00:00Z'), OPTIONS) };
+  const opened = await handleText({ ...night, userId: 'admin', isAdmin: true, text: '開放' });
+  assert.match(opened, /排球報名開始囉/);
+  assert.match(opened, /2026-09-29（週二）/);
+  assert.match(opened, /15 人成團・21 人額滿/);
+  assert.match(await handleText({ ...night, userId: 'u1', text: '報名 王小明' }), /王小明 報名成功（第 1 位）/);
+  assert.equal((await store.getEntries('g1', '2026-09-29')).length, 1);
 });
 
-test('提前開放後再截止同一場，截止要生效；之後還能提前開放下一場', async () => {
+test('不合規則時段留下的舊開放標記不會生效', async () => {
   const store = freshStore();
-  const closed = resolveCycle(new Date('2026-09-15T02:00:00Z'), OPTIONS); // 週二 10:00，空窗期
-  const base = { store, groupId: 'g1', maxPlayers: 21, gameWeekday: 2, cycle: closed };
-
-  await handleText({ ...base, userId: 'admin', isAdmin: true, text: '開放' });
-  assert.match(await handleText({ ...base, userId: 'u1', text: '報名 甲' }), /報名成功/);
-
-  const final = await handleText({ ...base, userId: 'admin', isAdmin: true, text: '截止' });
-  assert.match(final, /2026-09-22（週二）排球/);
-  assert.match(final, /1\. 甲/);
-
-  assert.match(await handleText({ ...base, userId: 'u2', text: '報名 乙' }), /本週報名已截止/);
-  assert.equal((await store.getEntries('g1', '2026-09-22')).length, 1, '截止後不能再報進 9/22');
-
-  // 再提前開放 → 是 9/29 那場
-  assert.match(await handleText({ ...base, userId: 'admin', isAdmin: true, text: '開放' }), /2026-09-29（週二）/);
-  assert.match(await handleText({ ...base, userId: 'u2', text: '報名 乙' }), /報名成功/);
-  assert.equal((await store.getEntries('g1', '2026-09-29')).length, 1);
+  // 模擬週一下午（新規則之前）留下的開放標記
+  await store.markAnnounced('g1', '2026-09-29', 'open');
+  const monday = resolveCycle(new Date('2026-09-21T08:00:00Z'), OPTIONS); // 週一 16:00
+  const base = { store, groupId: 'g1', maxPlayers: 21, gameWeekday: 2, cycle: monday };
+  assert.match(await handleText({ ...base, userId: 'u1', text: '報名 王小明' }), /本週報名已截止/);
+  assert.equal((await store.getEntries('g1', '2026-09-29')).length, 0);
 });
 
 test('一般成員不能截止或開放', async () => {
@@ -152,18 +161,48 @@ test('一般成員不能截止或開放', async () => {
 
   assert.match(await handleText({ ...base, userId: 'u1', text: '截止' }), /只有主辦人可以使用/);
   assert.match(await handleText({ ...base, userId: 'u1', text: '開放' }), /只有主辦人可以使用/);
-  // 報名仍然開著
   assert.match(await handleText({ ...base, userId: 'u1', text: '報名 王小明' }), /報名成功/);
 });
 
-test('手動截止只影響那一個群組', async () => {
+test('手動開放只影響那一個群組', async () => {
   const store = freshStore();
-  const open = resolveCycle(new Date('2026-09-19T02:00:00Z'), OPTIONS);
-  const common = { store, maxPlayers: 21, gameWeekday: 2, cycle: open };
-  await handleText({ ...common, groupId: 'g1', userId: 'admin', isAdmin: true, text: '截止' });
-  assert.match(await handleText({ ...common, groupId: 'g1', userId: 'u1', text: '報名 A' }), /本週報名已截止/);
-  assert.match(await handleText({ ...common, groupId: 'g2', userId: 'u1', text: '報名 A' }), /報名成功/);
+  const night = resolveCycle(new Date('2026-09-22T15:30:00Z'), OPTIONS); // 週二 23:30
+  const common = { store, maxPlayers: 21, gameWeekday: 2, cycle: night };
+  await handleText({ ...common, groupId: 'g1', userId: 'admin', isAdmin: true, text: '開放' });
+  assert.match(await handleText({ ...common, groupId: 'g1', userId: 'u1', text: '報名 A' }), /報名成功/);
+  assert.match(await handleText({ ...common, groupId: 'g2', userId: 'u1', text: '報名 A' }), /本週報名已截止/);
 });
+
+test('15 人成團、21 人額滿的狀態顯示', async () => {
+  const base = context();
+  for (let i = 1; i <= 13; i += 1) await handleText({ ...base, userId: `u${i}`, text: `報名 球員${i}` });
+  assert.match(await handleText({ ...base, userId: 'u99', text: '名單' }), /⏳ 還差 2 人成團/);
+
+  await handleText({ ...base, userId: 'u14', text: '報名 球員14' });
+  const fifteenth = await handleText({ ...base, userId: 'u15', text: '報名 球員15' });
+  assert.match(fifteenth, /🎉 滿 15 人，成團了！/);
+  assert.match(fifteenth, /✅ 已成團，還有 6 個名額/);
+
+  for (let i = 16; i <= 20; i += 1) await handleText({ ...base, userId: `u${i}`, text: `報名 球員${i}` });
+  const full = await handleText({ ...base, userId: 'u21', text: '報名 球員21' });
+  assert.match(full, /🈵 21 人額滿，之後報名會排備取/);
+  assert.match(full, /正取 21\/21/);
+
+  assert.match(await handleText({ ...base, userId: 'u22', text: '報名 球員22' }), /已排備取第 1 位/);
+
+  // 有人取消，備取遞補後仍是 21 人
+  await handleText({ ...base, userId: 'u1', text: '取消' });
+  assert.match(await handleText({ ...base, userId: 'u99', text: '名單' }), /正取 21\/21/);
+});
+
+test('取消後掉到成團人數以下會提醒', async () => {
+  const base = context();
+  for (let i = 1; i <= 15; i += 1) await handleText({ ...base, userId: `u${i}`, text: `報名 球員${i}` });
+  const reply = await handleText({ ...base, userId: 'u3', text: '取消' });
+  assert.match(reply, /⚠️ 人數降到 14 人，未達 15 人成團/);
+  assert.match(reply, /⏳ 還差 1 人成團/);
+});
+
 
 test('只有指令會得到回應，一般聊天完全沉默', async () => {
   const base = context();
@@ -344,7 +383,7 @@ test('額滿自動列備取，有人取消時自動遞補', async () => {
   await handleText({ ...base, userId: 'u1', text: '取消' });
   const list = await handleText({ ...base, userId: 'u3', text: '名單' });
   assert.match(list, /正取 2\/2/);
-  assert.doesNotMatch(list, /備取/);
+  assert.doesNotMatch(list, /備取 \d/, '遞補後不該還有備取人數');
 });
 
 test('名單同時顯示已截止的最終名單與下一場', async () => {

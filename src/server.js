@@ -14,7 +14,11 @@ const config = {
   timeZone: process.env.TIME_ZONE || 'Asia/Taipei',
   deadlineDaysBefore: Number(process.env.DEADLINE_DAYS_BEFORE || 1),
   deadlineHour: Number(process.env.DEADLINE_HOUR || 12),
+  minPlayers: Number(process.env.MIN_PLAYERS || 15),
   openWeekday: Number(process.env.OPEN_WEEKDAY || 3),
+  // 主辦人最早可以手動「開放」的時刻（預設週二 23:00）
+  manualOpenWeekday: Number(process.env.MANUAL_OPEN_WEEKDAY || 2),
+  manualOpenHour: Number(process.env.MANUAL_OPEN_HOUR || 23),
   openHour: Number(process.env.OPEN_HOUR || 8),
   taskKey: process.env.TASK_KEY,
   // 可以用「截止」「開放」的 LINE 使用者 ID，多位用逗號分隔。
@@ -33,8 +37,11 @@ const cycleOptions = {
   deadlineDaysBefore: config.deadlineDaysBefore,
   deadlineHour: config.deadlineHour,
   openWeekday: config.openWeekday,
-  openHour: config.openHour
+  openHour: config.openHour,
+  manualOpenWeekday: config.manualOpenWeekday,
+  manualOpenHour: config.manualOpenHour
 };
+const playerLimits = { minPlayers: config.minPlayers, maxPlayers: config.maxPlayers };
 
 async function lineApi(pathname, options = {}) {
   const response = await fetch(`https://api.line.me${pathname}`, {
@@ -95,7 +102,7 @@ const BARE_SIGN_UP = /^(?:報名|我要報名)$/;
 
 async function processEvent(event) {
   const cycle = resolveCycle(new Date(event.timestamp || Date.now()), cycleOptions);
-  const base = { maxPlayers: config.maxPlayers, gameWeekday: config.gameWeekday, cycle };
+  const base = { ...playerLimits, gameWeekday: config.gameWeekday, cycle };
 
   if (event.type === 'join' || event.type === 'memberJoined') {
     return reply(event.replyToken, help(base));
@@ -134,7 +141,7 @@ async function closeAndAnnounce(overrideDate, now = new Date()) {
     }
     const entries = await store.getEntries(groupId, eventDate);
     const body = formatList(entries, {
-      eventDate, maxPlayers: config.maxPlayers, gameWeekday: config.gameWeekday, cycle, closed: true
+      eventDate, ...playerLimits, gameWeekday: config.gameWeekday, cycle, closed: true
     });
     const text = `📋 報名截止，最終名單如下\n\n${body}`;
 
@@ -155,7 +162,7 @@ async function openAndAnnounce(now = new Date()) {
   if (!cycle.isOpen) return { ok: true, skipped: '還沒到開放時間，未做任何事', opensAt: `${cycle.openDate} ${cycle.openHour}:00`, now: new Date().toISOString() };
 
   const eventDate = cycle.eventDate;
-  const text = openAnnouncement({ maxPlayers: config.maxPlayers, gameWeekday: config.gameWeekday, cycle });
+  const text = openAnnouncement({ ...playerLimits, gameWeekday: config.gameWeekday, cycle });
   const results = [];
   for (const groupId of await store.listKnownGroups()) {
     if (await store.wasAnnounced(groupId, eventDate, 'open')) {

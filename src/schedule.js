@@ -34,7 +34,12 @@ function reached(local, date, hour) {
 //   截止：E 前 deadlineDaysBefore 天的 deadlineHour 點（預設週一 12:00）
 //   開放：E 之前最近一個 openWeekday 的 openHour 點（預設週三 08:00）
 // 截止到下一場開放之間是空窗期，不收報名，避免有人報進已結算的名單。
-function resolveCycle(now, { gameWeekday, timeZone, deadlineDaysBefore, deadlineHour, openWeekday = 3, openHour = 8 }) {
+// 主辦人最早可以手動「開放」的時刻：開放日之前最近一個 manualOpenWeekday 的 manualOpenHour 點
+// （預設週二 23:00，也就是比賽當晚打完球之後）。
+function resolveCycle(now, {
+  gameWeekday, timeZone, deadlineDaysBefore, deadlineHour,
+  openWeekday = 3, openHour = 8, manualOpenWeekday = 2, manualOpenHour = 23
+}) {
   const local = localParts(now, timeZone);
   let ahead = gameWeekday - local.weekday;
   if (ahead < 0) ahead += 7;
@@ -50,6 +55,7 @@ function resolveCycle(now, { gameWeekday, timeZone, deadlineDaysBefore, deadline
   if (openDaysBefore === 0) openDaysBefore = 7;
   const openDate = addDays(eventDate, -openDaysBefore);
   const isOpen = reached(local, openDate, openHour);
+  const manualOpenDate = addDays(openDate, -((openWeekday - manualOpenWeekday + 7) % 7));
 
   return {
     eventDate,
@@ -57,25 +63,16 @@ function resolveCycle(now, { gameWeekday, timeZone, deadlineDaysBefore, deadline
     deadlineHour,
     openDate,
     openHour,
+    manualOpenDate,
+    manualOpenHour,
+    canOpenEarly: reached(local, manualOpenDate, manualOpenHour),
     isOpen,
     // 空窗期時，上一場就是剛結算完的那場（名單要顯示它的最終結果）
     closedEvent: isOpen ? null : addDays(eventDate, -7)
   };
 }
 
-// 主辦人手動「截止」：本場提前關閉，視角跳到下一場的空窗期。
-function closeEarly(cycle) {
-  return {
-    ...cycle,
-    eventDate: addDays(cycle.eventDate, 7),
-    deadlineDate: addDays(cycle.deadlineDate, 7),
-    openDate: addDays(cycle.openDate, 7),
-    isOpen: false,
-    closedEvent: cycle.eventDate
-  };
-}
-
-// 主辦人手動「開放」：還沒到開放時間也先開。
+// 主辦人手動「開放」：到了最早可開放時刻、但還沒到自動開放時間時先開。
 function openEarly(cycle) {
   return { ...cycle, isOpen: true, closedEvent: null };
 }
@@ -92,8 +89,14 @@ function describeOpen({ openDate, openHour }) {
   return formatWhen(openDate, openHour);
 }
 
+function describeManualOpen({ manualOpenDate, manualOpenHour }) {
+  return formatWhen(manualOpenDate, manualOpenHour);
+}
+
 function formatEventDate(isoDate, gameWeekday) {
   return `${isoDate}（週${WEEKDAY_LABELS[gameWeekday || weekdayOf(isoDate)]}）`;
 }
 
-module.exports = { resolveCycle, closeEarly, openEarly, addDays, localParts, describeDeadline, describeOpen, formatEventDate };
+module.exports = {
+  resolveCycle, openEarly, addDays, localParts, describeDeadline, describeOpen, describeManualOpen, formatEventDate
+};

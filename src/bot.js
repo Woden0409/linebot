@@ -1,7 +1,8 @@
-const { closeEarly, openEarly, describeDeadline, describeOpen, formatEventDate } = require('./schedule');
+const { openEarly, describeDeadline, describeOpen, describeManualOpen, formatEventDate } = require('./schedule');
 
 // 英文全名（含空格）會比中文名長不少，所以放寬到 30。
 const MAX_NAME_LENGTH = 30;
+const DEFAULT_MIN_PLAYERS = 15;
 // 指令一律用中文詞，不用符號。
 // 「報名」「取消」是日常對話會出現的詞，所以帶名字時一定要有空格分隔
 // （否則「報名截止了嗎」會被當成幫「截止了嗎」報名）。不合規則的訊息一律沉默。
@@ -33,13 +34,24 @@ function normalize(text) {
   return String(text || '').trim().replace(/\s+/g, ' ');
 }
 
-function formatList(entries, { eventDate, maxPlayers, gameWeekday, cycle, closed }) {
+function capacityText({ minPlayers = DEFAULT_MIN_PLAYERS, maxPlayers }) {
+  return `${minPlayers} 人成團・${maxPlayers} 人額滿`;
+}
+
+function groupStatus(count, { minPlayers = DEFAULT_MIN_PLAYERS, maxPlayers }, closed) {
+  if (count >= maxPlayers) return closed ? '✅ 成團（額滿）' : '🈵 已額滿，之後報名排備取';
+  if (count >= minPlayers) return closed ? '✅ 成團' : `✅ 已成團，還有 ${maxPlayers - count} 個名額`;
+  return closed ? `❌ 未達 ${minPlayers} 人成團（差 ${minPlayers - count} 人）` : `⏳ 還差 ${minPlayers - count} 人成團`;
+}
+
+function formatList(entries, { eventDate, minPlayers = DEFAULT_MIN_PLAYERS, maxPlayers, gameWeekday, cycle, closed }) {
   const confirmed = entries.slice(0, maxPlayers);
   const waiting = entries.slice(maxPlayers);
   const lines = [
     `🏐 ${formatEventDate(eventDate, gameWeekday)}排球`,
     closed ? '📌 報名已截止（最終名單）' : `⏰ 截止 ${describeDeadline(cycle)}`,
     `👥 正取 ${confirmed.length}/${maxPlayers}${waiting.length ? `　備取 ${waiting.length}` : ''}`,
+    groupStatus(confirmed.length, { minPlayers, maxPlayers }, closed),
     DIVIDER
   ];
   lines.push(...(confirmed.length ? confirmed.map((entry, index) => `${index + 1}. ${entry.name}`) : ['（尚無人報名）']));
@@ -49,7 +61,7 @@ function formatList(entries, { eventDate, maxPlayers, gameWeekday, cycle, closed
   return lines.join('\n');
 }
 
-function schedulePanel({ maxPlayers, gameWeekday, cycle }) {
+function schedulePanel({ minPlayers, maxPlayers, gameWeekday, cycle }) {
   if (!cycle.isOpen) {
     return [
       '🔒 目前不開放報名',
@@ -57,32 +69,32 @@ function schedulePanel({ maxPlayers, gameWeekday, cycle }) {
       `📅 下一場　${formatEventDate(cycle.eventDate, gameWeekday)}`,
       `🟢 開放　　${describeOpen(cycle)}`,
       `⏰ 截止　　${describeDeadline(cycle)}`,
-      `👥 名額　　${maxPlayers} 人`
+      `👥 人數　　${capacityText({ minPlayers, maxPlayers })}`
     ];
   }
   return [
     `📅 本場　${formatEventDate(cycle.eventDate, gameWeekday)}`,
-    `👥 名額　${maxPlayers} 人`,
+    `👥 人數　${capacityText({ minPlayers, maxPlayers })}`,
     `⏰ 截止　${describeDeadline(cycle)}`
   ];
 }
 
-function notOpenMessage({ maxPlayers, gameWeekday, cycle }) {
+function notOpenMessage(context) {
   return [
     '🔒 本週報名已截止，名單已確定。',
     '',
-    ...schedulePanel({ maxPlayers, gameWeekday, cycle }).slice(2),
+    ...schedulePanel(context).slice(2),
     '',
     '開放時間到了再報名喔！'
   ].join('\n');
 }
 
-function openAnnouncement({ maxPlayers, gameWeekday, cycle }) {
+function openAnnouncement({ minPlayers, maxPlayers, gameWeekday, cycle }) {
   return [
     '🟢 排球報名開始囉！',
     '',
     `📅 本場　${formatEventDate(cycle.eventDate, gameWeekday)}`,
-    `👥 名額　${maxPlayers} 人`,
+    `👥 人數　${capacityText({ minPlayers, maxPlayers })}`,
     `⏰ 截止　${describeDeadline(cycle)}`,
     '',
     DIVIDER,
@@ -91,11 +103,11 @@ function openAnnouncement({ maxPlayers, gameWeekday, cycle }) {
   ].join('\n');
 }
 
-function help({ maxPlayers, gameWeekday, cycle }) {
+function help({ minPlayers, maxPlayers, gameWeekday, cycle }) {
   return [
     '🏐 每週排球報名',
     '',
-    ...schedulePanel({ maxPlayers, gameWeekday, cycle }),
+    ...schedulePanel({ minPlayers, maxPlayers, gameWeekday, cycle }),
     '',
     DIVIDER,
     '怎麼報名',
@@ -132,29 +144,21 @@ function help({ maxPlayers, gameWeekday, cycle }) {
     DIVIDER,
     '主辦人專用',
     DIVIDER,
-    '「截止」立刻截止並公布最終名單',
-    '「開放」開放下一場並通知大家',
+    '「截止」截止時間過後，公布最終名單',
+    '「開放」比賽當晚 23:00 起，開放下一場',
     '',
     '額滿會自動排備取，有人取消時依序遞補。',
     '其他訊息機器人不會回應，聊天不受影響。'
   ].join('\n');
 }
 
-// 時間表是預設值；主辦人手動截止或開放過的場次，以手動為準。
-// 一場一定是先開放、後截止，所以要依序反覆套用：提前開放的場次也可能已被手動截止，
-// 截止後視角跳到下一場，下一場又可能已被提前開放。
+// 時間表是預設值；主辦人在允許的時段內手動開放過的下一場，視為已開放。
+// 只認「最早可開放時刻之後」的開放標記，舊的、不合規則時段留下的標記不會生效。
 async function effectiveCycle(cycle, store, groupId) {
-  let current = cycle;
-  for (let step = 0; step < 4; step += 1) {
-    if (!current.isOpen && await store.wasAnnounced(groupId, current.eventDate, 'open')) {
-      current = openEarly(current);
-    } else if (current.isOpen && await store.wasAnnounced(groupId, current.eventDate, 'close')) {
-      current = closeEarly(current);
-    } else {
-      break;
-    }
+  if (!cycle.isOpen && cycle.canOpenEarly && await store.wasAnnounced(groupId, cycle.eventDate, 'open')) {
+    return openEarly(cycle);
   }
-  return current;
+  return cycle;
 }
 
 function finalListMessage(entries, context) {
@@ -162,43 +166,56 @@ function finalListMessage(entries, context) {
   return `📋 報名截止，最終名單如下\n\n${list}\n\n\n${schedulePanel(context).join('\n')}`;
 }
 
+// 主辦人指令只能在規定時段用：截止時間過後才能公布名單，比賽當晚之後才能開放下一場。
+async function adminCommand(input, { groupId, store, scheduled, base }) {
+  const cycle = await effectiveCycle(scheduled, store, groupId);
+  const context = { ...base, cycle };
+
+  if (CLOSE_NOW.test(input)) {
+    if (cycle.isOpen) {
+      return `⏰ 還沒到截止時間，現在不能截止。\n\n${describeDeadline(cycle)} 會自動截止，\n之後再打「截止」公布最終名單。`;
+    }
+    return finalListMessage(await store.getEntries(groupId, cycle.closedEvent), context);
+  }
+
+  if (cycle.isOpen) return openAnnouncement(context);
+  if (!cycle.canOpenEarly) {
+    return [
+      '⏳ 還不能開放下一場。',
+      '',
+      `最早　${describeManualOpen(cycle)} 起可以打「開放」`,
+      `自動　${describeOpen(cycle)} 會自動開放`
+    ].join('\n');
+  }
+  await store.markAnnounced(groupId, cycle.eventDate, 'open');
+  return openAnnouncement({ ...context, cycle: openEarly(cycle) });
+}
+
 // 回傳 null 代表「不是指令」，機器人保持沉默，不干擾群組聊天。
-async function handleText({ text, userId, groupId, store, cycle: scheduled, maxPlayers, gameWeekday, displayName, isAdmin = false }) {
+async function handleText({
+  text, userId, groupId, store, cycle: scheduled,
+  minPlayers = DEFAULT_MIN_PLAYERS, maxPlayers, gameWeekday, displayName, isAdmin = false
+}) {
   const input = normalize(text);
   if (!input) return null;
+  const base = { minPlayers, maxPlayers, gameWeekday };
 
   if (CLOSE_NOW.test(input) || OPEN_NOW.test(input)) {
     if (!isAdmin) return '只有主辦人可以使用「截止」和「開放」。';
-    let cycle = await effectiveCycle(scheduled, store, groupId);
-    const base = { maxPlayers, gameWeekday };
-
-    if (CLOSE_NOW.test(input)) {
-      // 還開著就先關；已經過了截止時間就只是公布最終名單。
-      if (cycle.isOpen) {
-        await store.markAnnounced(groupId, cycle.eventDate, 'close');
-        cycle = closeEarly(cycle);
-      }
-      return finalListMessage(await store.getEntries(groupId, cycle.closedEvent), { ...base, cycle });
-    }
-
-    if (!cycle.isOpen) {
-      await store.markAnnounced(groupId, cycle.eventDate, 'open');
-      cycle = openEarly(cycle);
-    }
-    return openAnnouncement({ ...base, cycle });
+    return adminCommand(input, { groupId, store, scheduled, base });
   }
 
   const cycle = await effectiveCycle(scheduled, store, groupId);
   const eventDate = cycle.eventDate;
-  const context = { eventDate, maxPlayers, gameWeekday, cycle, closed: false };
+  const context = { ...base, eventDate, cycle, closed: false };
 
-  if (HELP.test(input)) return help({ maxPlayers, gameWeekday, cycle });
+  if (HELP.test(input)) return help({ ...base, cycle });
 
   if (LIST.test(input)) {
     if (!cycle.isOpen) {
       const finalEntries = await store.getEntries(groupId, cycle.closedEvent);
       const final = formatList(finalEntries, { ...context, eventDate: cycle.closedEvent, closed: true });
-      return `${final}\n\n\n${schedulePanel({ maxPlayers, gameWeekday, cycle }).join('\n')}`;
+      return `${final}\n\n\n${schedulePanel(context).join('\n')}`;
     }
     return formatList(await store.getEntries(groupId, eventDate), context);
   }
@@ -212,9 +229,9 @@ async function handleText({ text, userId, groupId, store, cycle: scheduled, maxP
     const signUpIntent = SIGN_UP_NAMED.test(input) || SIGN_UP_BARE.test(input)
       || Boolean(missedSignUp && looksLikeName(missedSignUp[1]));
     if (cancelIntent) {
-      return `${notOpenMessage({ maxPlayers, gameWeekday, cycle })}\n\n名單已確定無法取消，臨時不能來請直接聯絡主辦。`;
+      return `${notOpenMessage(context)}\n\n名單已確定無法取消，臨時不能來請直接聯絡主辦。`;
     }
-    if (signUpIntent) return notOpenMessage({ maxPlayers, gameWeekday, cycle });
+    if (signUpIntent) return notOpenMessage(context);
     return null;
   }
 
@@ -259,7 +276,10 @@ async function handleText({ text, userId, groupId, store, cycle: scheduled, maxP
     if (result.status === 'not_found') {
       return `你尚未報名 ${formatEventDate(eventDate, gameWeekday)} 的排球。`;
     }
-    return `❎ 已取消 ${result.removed.name} 的報名\n\n${formatList(result.entries, context)}`;
+    // 有人取消導致掉到成團人數以下時特別提醒。
+    const after = Math.min(result.entries.length, maxPlayers);
+    const dropped = after === minPlayers - 1 ? `\n⚠️ 人數降到 ${after} 人，未達 ${minPlayers} 人成團` : '';
+    return `❎ 已取消 ${result.removed.name} 的報名${dropped}\n\n${formatList(result.entries, context)}`;
   }
 
   const named = input.match(SIGN_UP_NAMED);
@@ -281,9 +301,11 @@ async function handleText({ text, userId, groupId, store, cycle: scheduled, maxP
   }
 
   const position = result.entries.findIndex((entry) => entry.userId === userId && entry.name === name) + 1;
-  const head = position > maxPlayers
+  let head = position > maxPlayers
     ? `🕒 ${name} 已排備取第 ${position - maxPlayers} 位\n有人取消會自動遞補。`
     : `✅ ${name} 報名成功（第 ${position} 位）`;
+  if (result.entries.length === minPlayers) head += `\n🎉 滿 ${minPlayers} 人，成團了！`;
+  if (result.entries.length === maxPlayers) head += `\n🈵 ${maxPlayers} 人額滿，之後報名會排備取`;
 
   // 幫別人報名時把自己名下的人列出來，方便確認有沒有漏。
   const own = result.entries.filter((entry) => entry.userId === userId);
