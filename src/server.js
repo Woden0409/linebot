@@ -1,7 +1,7 @@
 const http = require('node:http');
 const crypto = require('node:crypto');
 const { createStore } = require('./store');
-const { resolveCycle, formatEventDate } = require('./schedule');
+const { resolveCycle } = require('./schedule');
 const { handleText, formatList, help, openAnnouncement } = require('./bot');
 const { startKeepAlive } = require('./keepalive');
 
@@ -15,6 +15,8 @@ const config = {
   deadlineDaysBefore: Number(process.env.DEADLINE_DAYS_BEFORE || 1),
   deadlineHour: Number(process.env.DEADLINE_HOUR || 12),
   minPlayers: Number(process.env.MIN_PLAYERS || 15),
+  // 每人費用，設 0 就不顯示
+  price: Number(process.env.PRICE_PER_PERSON || 150),
   openWeekday: Number(process.env.OPEN_WEEKDAY || 2),
   // 主辦人最早可以手動「開放」的時刻（預設週二 23:00）
   manualOpenWeekday: Number(process.env.MANUAL_OPEN_WEEKDAY || 2),
@@ -41,7 +43,7 @@ const cycleOptions = {
   manualOpenWeekday: config.manualOpenWeekday,
   manualOpenHour: config.manualOpenHour
 };
-const playerLimits = { minPlayers: config.minPlayers, maxPlayers: config.maxPlayers };
+const eventDefaults = { minPlayers: config.minPlayers, maxPlayers: config.maxPlayers, price: config.price };
 
 async function lineApi(pathname, options = {}) {
   const response = await fetch(`https://api.line.me${pathname}`, {
@@ -102,7 +104,7 @@ const BARE_SIGN_UP = /^(?:報名|我要報名)$/;
 
 async function processEvent(event) {
   const cycle = resolveCycle(new Date(event.timestamp || Date.now()), cycleOptions);
-  const base = { ...playerLimits, gameWeekday: config.gameWeekday, cycle };
+  const base = { ...eventDefaults, gameWeekday: config.gameWeekday, cycle };
 
   if (event.type === 'join' || event.type === 'memberJoined') {
     return reply(event.replyToken, help(base));
@@ -141,7 +143,7 @@ async function closeAndAnnounce(overrideDate, now = new Date()) {
     }
     const entries = await store.getEntries(groupId, eventDate);
     const body = formatList(entries, {
-      eventDate, ...playerLimits, gameWeekday: config.gameWeekday, cycle, closed: true
+      eventDate, ...eventDefaults, gameWeekday: config.gameWeekday, cycle, closed: true
     });
     const text = `📋 報名截止，最終名單如下\n\n${body}`;
 
@@ -162,7 +164,7 @@ async function openAndAnnounce(now = new Date()) {
   if (!cycle.isOpen) return { ok: true, skipped: '還沒到開放時間，未做任何事', opensAt: `${cycle.openDate} ${cycle.openHour}:00`, now: new Date().toISOString() };
 
   const eventDate = cycle.eventDate;
-  const text = openAnnouncement({ ...playerLimits, gameWeekday: config.gameWeekday, cycle });
+  const text = openAnnouncement({ ...eventDefaults, gameWeekday: config.gameWeekday, cycle });
   const results = [];
   for (const groupId of await store.listKnownGroups()) {
     if (await store.wasAnnounced(groupId, eventDate, 'open')) {

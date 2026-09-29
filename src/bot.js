@@ -38,18 +38,24 @@ function capacityText({ minPlayers = DEFAULT_MIN_PLAYERS, maxPlayers }) {
   return `${minPlayers} 人成團・${maxPlayers} 人額滿`;
 }
 
+// price 設 0 或不設就完全不顯示費用。
+function priceLine(price, label = '💰 每人') {
+  return price > 0 ? [`${label} ${price} 元`] : [];
+}
+
 function groupStatus(count, { minPlayers = DEFAULT_MIN_PLAYERS, maxPlayers }, closed) {
   if (count >= maxPlayers) return closed ? '✅ 成團（額滿）' : '🈵 已額滿，之後報名排備取';
   if (count >= minPlayers) return closed ? '✅ 成團' : `✅ 已成團，還有 ${maxPlayers - count} 個名額`;
   return closed ? `❌ 未達 ${minPlayers} 人成團（差 ${minPlayers - count} 人）` : `⏳ 還差 ${minPlayers - count} 人成團`;
 }
 
-function formatList(entries, { eventDate, minPlayers = DEFAULT_MIN_PLAYERS, maxPlayers, gameWeekday, cycle, closed }) {
+function formatList(entries, { eventDate, minPlayers = DEFAULT_MIN_PLAYERS, maxPlayers, gameWeekday, cycle, closed, price }) {
   const confirmed = entries.slice(0, maxPlayers);
   const waiting = entries.slice(maxPlayers);
   const lines = [
     `🏐 ${formatEventDate(eventDate, gameWeekday)}排球`,
     closed ? '📌 報名已截止（最終名單）' : `⏰ 截止 ${describeDeadline(cycle)}`,
+    ...priceLine(price),
     `👥 正取 ${confirmed.length}/${maxPlayers}${waiting.length ? `　備取 ${waiting.length}` : ''}`,
     groupStatus(confirmed.length, { minPlayers, maxPlayers }, closed),
     DIVIDER
@@ -61,7 +67,7 @@ function formatList(entries, { eventDate, minPlayers = DEFAULT_MIN_PLAYERS, maxP
   return lines.join('\n');
 }
 
-function schedulePanel({ minPlayers, maxPlayers, gameWeekday, cycle }) {
+function schedulePanel({ minPlayers, maxPlayers, gameWeekday, cycle, price }) {
   if (!cycle.isOpen) {
     return [
       '🔒 目前不開放報名',
@@ -69,12 +75,14 @@ function schedulePanel({ minPlayers, maxPlayers, gameWeekday, cycle }) {
       `📅 下一場　${formatEventDate(cycle.eventDate, gameWeekday)}`,
       `🟢 開放　　${describeOpen(cycle)}`,
       `⏰ 截止　　${describeDeadline(cycle)}`,
-      `👥 人數　　${capacityText({ minPlayers, maxPlayers })}`
+      `👥 人數　　${capacityText({ minPlayers, maxPlayers })}`,
+      ...priceLine(price, '💰 費用　　每人')
     ];
   }
   return [
     `📅 本場　${formatEventDate(cycle.eventDate, gameWeekday)}`,
     `👥 人數　${capacityText({ minPlayers, maxPlayers })}`,
+    ...priceLine(price, '💰 費用　每人'),
     `⏰ 截止　${describeDeadline(cycle)}`
   ];
 }
@@ -89,12 +97,13 @@ function notOpenMessage(context) {
   ].join('\n');
 }
 
-function openAnnouncement({ minPlayers, maxPlayers, gameWeekday, cycle }) {
+function openAnnouncement({ minPlayers, maxPlayers, gameWeekday, cycle, price }) {
   return [
     '🟢 排球報名開始囉！',
     '',
     `📅 本場　${formatEventDate(cycle.eventDate, gameWeekday)}`,
     `👥 人數　${capacityText({ minPlayers, maxPlayers })}`,
+    ...priceLine(price, '💰 費用　每人'),
     `⏰ 截止　${describeDeadline(cycle)}`,
     '',
     DIVIDER,
@@ -103,11 +112,11 @@ function openAnnouncement({ minPlayers, maxPlayers, gameWeekday, cycle }) {
   ].join('\n');
 }
 
-function help({ minPlayers, maxPlayers, gameWeekday, cycle }) {
+function help(context) {
   return [
     '🏐 每週排球報名',
     '',
-    ...schedulePanel({ minPlayers, maxPlayers, gameWeekday, cycle }),
+    ...schedulePanel(context),
     '',
     DIVIDER,
     '怎麼報名',
@@ -208,11 +217,11 @@ async function adminCommand(input, { groupId, store, scheduled, base }) {
 // 回傳 null 代表「不是指令」，機器人保持沉默，不干擾群組聊天。
 async function handleText({
   text, userId, groupId, store, cycle: scheduled,
-  minPlayers = DEFAULT_MIN_PLAYERS, maxPlayers, gameWeekday, displayName, isAdmin = false
+  minPlayers = DEFAULT_MIN_PLAYERS, maxPlayers, gameWeekday, price = 0, displayName, isAdmin = false
 }) {
   const input = normalize(text);
   if (!input) return null;
-  const base = { minPlayers, maxPlayers, gameWeekday };
+  const base = { minPlayers, maxPlayers, gameWeekday, price };
 
   if (CLOSE_NOW.test(input) || OPEN_NOW.test(input)) {
     if (!isAdmin) return '只有主辦人可以使用「截止」和「開放」。';

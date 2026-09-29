@@ -53,6 +53,34 @@ test('報名週期在週一 12:00 準時切換到下一場', () => {
   assert.equal(onGameDay.eventDate, '2026-09-15');
 });
 
+test('每人費用會出現在報名、名單、說明與開放公告裡', async () => {
+  const base = context({ price: 150 });
+
+  const signUp = await handleText({ ...base, userId: 'u1', text: '報名 王小明' });
+  assert.match(signUp, /💰 每人 150 元/, '報名成功的回覆要有費用');
+
+  assert.match(await handleText({ ...base, userId: 'u1', text: '名單' }), /💰 每人 150 元/);
+  assert.match(await handleText({ ...base, userId: 'u1', text: '幫助' }), /💰 費用　每人 150 元/);
+  assert.match(await handleText({ ...base, userId: 'u2', text: '報名 陳大文' }), /💰 每人 150 元/);
+  assert.match(await handleText({ ...base, userId: 'u2', text: '取消' }), /💰 每人 150 元/);
+
+  // 開放公告
+  const night = { ...base, store: freshStore(), cycle: resolveCycle(new Date('2026-09-21T16:30:00Z'), LIVE) };
+  assert.match(await handleText({ ...night, userId: 'admin', isAdmin: true, text: '開放' }), /💰 費用　每人 150 元/);
+
+  // 截止後的最終名單
+  const closed = { ...base, store: freshStore(), cycle: resolveCycle(new Date('2026-09-21T04:00:00Z'), LIVE) };
+  await closed.store.register('g1', '2026-09-22', { userId: 'u1', name: '王小明' });
+  assert.match(await handleText({ ...closed, userId: 'admin', isAdmin: true, text: '截止' }), /💰 每人 150 元/);
+});
+
+test('費用設 0 就完全不顯示', async () => {
+  const base = context({ price: 0 });
+  const signUp = await handleText({ ...base, userId: 'u1', text: '報名 王小明' });
+  assert.doesNotMatch(signUp, /元/);
+  assert.doesNotMatch(await handleText({ ...base, userId: 'u1', text: '幫助' }), /費用/);
+});
+
 test('正式時程：週一 12:00 截止、週二 00:00 開放下一場', () => {
   // 週一 11:59：9/22 那場還開著
   const before = resolveCycle(new Date('2026-09-21T03:59:00Z'), LIVE);
