@@ -38,7 +38,7 @@ function reached(local, date, hour) {
 // （預設週二 23:00，也就是比賽當晚打完球之後）。
 function resolveCycle(now, {
   gameWeekday, timeZone, deadlineDaysBefore, deadlineHour,
-  openWeekday = 3, openHour = 8, manualOpenWeekday = 2, manualOpenHour = 23
+  openWeekday = 2, openHour = 0, manualOpenWeekday = 2, manualOpenHour = 0
 }) {
   const local = localParts(now, timeZone);
   let ahead = gameWeekday - local.weekday;

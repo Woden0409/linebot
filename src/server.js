@@ -15,11 +15,11 @@ const config = {
   deadlineDaysBefore: Number(process.env.DEADLINE_DAYS_BEFORE || 1),
   deadlineHour: Number(process.env.DEADLINE_HOUR || 12),
   minPlayers: Number(process.env.MIN_PLAYERS || 15),
-  openWeekday: Number(process.env.OPEN_WEEKDAY || 3),
+  openWeekday: Number(process.env.OPEN_WEEKDAY || 2),
   // 主辦人最早可以手動「開放」的時刻（預設週二 23:00）
   manualOpenWeekday: Number(process.env.MANUAL_OPEN_WEEKDAY || 2),
-  manualOpenHour: Number(process.env.MANUAL_OPEN_HOUR || 23),
-  openHour: Number(process.env.OPEN_HOUR || 8),
+  manualOpenHour: Number(process.env.MANUAL_OPEN_HOUR || 0),
+  openHour: Number(process.env.OPEN_HOUR || 0),
   taskKey: process.env.TASK_KEY,
   // 可以用「截止」「開放」的 LINE 使用者 ID，多位用逗號分隔。
   adminUserIds: String(process.env.ADMIN_USER_IDS || '').split(',').map((id) => id.trim()).filter(Boolean),

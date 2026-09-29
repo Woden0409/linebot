@@ -104,7 +104,7 @@ test('健康檢查回報目前開放的場次與截止時間', async () => {
   assert.equal(body.openEvent, live.eventDate);
   assert.equal(body.registrationOpen, live.isOpen);
   assert.match(body.deadline, /12:00 Asia\/Taipei/);
-  assert.match(body.opensAt, /08:00 Asia\/Taipei/);
+  assert.match(body.opensAt, /00:00 Asia\/Taipei/, '正式時程是週二 00:00 開放');
   assert.ok(body.db, '應回報資料庫保活狀態');
 });
 
@@ -180,16 +180,16 @@ test('額度快用完時自動改為不推播，避免超額', async () => {
   usage = 0;
 });
 
-test('週三開放通知：推播一次、不重送、還沒到時間不動作', async () => {
+test('開放通知：推播一次、不重送、還沒到時間不動作', async () => {
   const { openAndAnnounce } = require('../src/server');
   usage = 0;
 
-  // 週二 10:00 台北，還在空窗期
-  const early = await openAndAnnounce(new Date('2026-09-15T02:00:00Z'));
+  // 週一 14:00 台北，截止後的空窗期
+  const early = await openAndAnnounce(new Date('2026-09-14T06:00:00Z'));
   assert.match(early.skipped, /還沒到開放時間/);
 
   calls.length = 0;
-  const first = await openAndAnnounce(new Date('2026-09-16T00:00:30Z')); // 週三 08:00:30
+  const first = await openAndAnnounce(new Date('2026-09-14T16:00:30Z')); // 週二 00:00:30
   assert.equal(first.eventDate, '2026-09-22');
   assert.equal(first.results[0].pushed, true);
   assert.match(pushes()[0], /排球報名開始囉/);

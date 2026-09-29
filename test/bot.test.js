@@ -7,7 +7,18 @@ const { handleText } = require('../src/bot');
 const { resolveCycle } = require('../src/schedule');
 const { JsonStore } = require('../src/store');
 
-const OPTIONS = { gameWeekday: 2, timeZone: 'Asia/Taipei', deadlineDaysBefore: 1, deadlineHour: 12 };
+// 這些測試用「週三 08:00 開放、週二 23:00 起可手動開放」這組時程，
+// 驗的是週期與指令機制本身。正式環境的時程另外在下面的測試驗。
+const OPTIONS = {
+  gameWeekday: 2, timeZone: 'Asia/Taipei', deadlineDaysBefore: 1, deadlineHour: 12,
+  openWeekday: 3, openHour: 8, manualOpenWeekday: 2, manualOpenHour: 23
+};
+
+// 正式環境：週二 00:00 開放、週一 12:00 截止
+const LIVE = {
+  gameWeekday: 2, timeZone: 'Asia/Taipei', deadlineDaysBefore: 1, deadlineHour: 12,
+  openWeekday: 2, openHour: 0, manualOpenWeekday: 2, manualOpenHour: 0
+};
 
 function freshStore() {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'linebot-')), 'registrations.json');
@@ -40,6 +51,52 @@ test('報名週期在週一 12:00 準時切換到下一場', () => {
   // 比賽日當天報名算下一場，不會混進已結算的名單
   const onGameDay = resolveCycle(new Date('2026-09-08T09:00:00Z'), OPTIONS);
   assert.equal(onGameDay.eventDate, '2026-09-15');
+});
+
+test('正式時程：週一 12:00 截止、週二 00:00 開放下一場', () => {
+  // 週一 11:59：9/22 那場還開著
+  const before = resolveCycle(new Date('2026-09-21T03:59:00Z'), LIVE);
+  assert.equal(before.isOpen, true);
+  assert.equal(before.eventDate, '2026-09-22');
+
+  // 週一 12:00：截止，進入空窗期，下一場是 9/29
+  const closed = resolveCycle(new Date('2026-09-21T04:00:00Z'), LIVE);
+  assert.equal(closed.isOpen, false);
+  assert.equal(closed.closedEvent, '2026-09-22');
+  assert.equal(closed.eventDate, '2026-09-29');
+  assert.equal(closed.openDate, '2026-09-22', '9/29 那場在 9/22（週二）開放');
+  assert.equal(closed.openHour, 0);
+
+  // 週一 23:59 仍在空窗期
+  assert.equal(resolveCycle(new Date('2026-09-21T15:59:00Z'), LIVE).isOpen, false);
+
+  // 週二 00:00 準時開放，空窗期總共 12 小時
+  const opened = resolveCycle(new Date('2026-09-21T16:00:00Z'), LIVE);
+  assert.equal(opened.isOpen, true);
+  assert.equal(opened.eventDate, '2026-09-29');
+
+  // 比賽日整天、到下週一 11:59 都開著
+  assert.equal(resolveCycle(new Date('2026-09-22T06:00:00Z'), LIVE).isOpen, true);
+  assert.equal(resolveCycle(new Date('2026-09-28T03:59:00Z'), LIVE).isOpen, true);
+});
+
+test('正式時程：空窗期擋報名，週二 00:00 後可報名並公告一次', async () => {
+  const store = freshStore();
+  const common = { store, groupId: 'g1', maxPlayers: 21, gameWeekday: 2 };
+
+  // 週一 20:00：空窗期
+  const gap = { ...common, cycle: resolveCycle(new Date('2026-09-21T12:00:00Z'), LIVE) };
+  const denied = await handleText({ ...gap, userId: 'u1', text: '報名 王小明' });
+  assert.match(denied, /本週報名已截止/);
+  assert.match(denied, /開放　　2026-09-22（週二）00:00/);
+  assert.match(await handleText({ ...gap, userId: 'admin', isAdmin: true, text: '開放' }), /還不能開放下一場/);
+
+  // 週二 00:30：可以報名，主辦人公告一次
+  const open = { ...common, cycle: resolveCycle(new Date('2026-09-21T16:30:00Z'), LIVE) };
+  assert.match(await handleText({ ...open, userId: 'u1', text: '報名 王小明' }), /報名成功（第 1 位）/);
+  assert.match(await handleText({ ...open, userId: 'admin', isAdmin: true, text: '開放' }), /排球報名開始囉/);
+  assert.match(await handleText({ ...open, userId: 'admin', isAdmin: true, text: '開放' }), /這場已經開放報名了/);
+  assert.equal((await store.getEntries('g1', '2026-09-29')).length, 1);
 });
 
 test('截止後到週三 08:00 是空窗期，週三 08:00 準時開放下一場', () => {
