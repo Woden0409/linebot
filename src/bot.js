@@ -178,17 +178,31 @@ async function adminCommand(input, { groupId, store, scheduled, base }) {
     return finalListMessage(await store.getEntries(groupId, cycle.closedEvent), context);
   }
 
-  if (cycle.isOpen) return openAnnouncement(context);
-  if (!cycle.canOpenEarly) {
+  // 每一場只公告一次，避免連打「開放」把群組洗版。
+  if (cycle.isOpen && await store.wasAnnounced(groupId, cycle.eventDate, 'open')) {
+    const entries = await store.getEntries(groupId, cycle.eventDate);
     return [
-      '⏳ 還不能開放下一場。',
+      `🟢 ${formatEventDate(cycle.eventDate, base.gameWeekday)}這場已經開放報名了。`,
       '',
-      `最早　${describeManualOpen(cycle)} 起可以打「開放」`,
-      `自動　${describeOpen(cycle)} 會自動開放`
+      formatList(entries, { ...context, eventDate: cycle.eventDate, closed: false })
     ].join('\n');
   }
+
+  if (!cycle.isOpen) {
+    if (!cycle.canOpenEarly) {
+      return [
+        '⏳ 還不能開放下一場。',
+        '',
+        `最早　${describeManualOpen(cycle)} 起可以打「開放」`,
+        `自動　${describeOpen(cycle)} 會自動開放`
+      ].join('\n');
+    }
+    await store.markAnnounced(groupId, cycle.eventDate, 'open');
+    return openAnnouncement({ ...context, cycle: openEarly(cycle) });
+  }
+
   await store.markAnnounced(groupId, cycle.eventDate, 'open');
-  return openAnnouncement({ ...context, cycle: openEarly(cycle) });
+  return openAnnouncement(context);
 }
 
 // 回傳 null 代表「不是指令」，機器人保持沉默，不干擾群組聊天。
