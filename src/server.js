@@ -16,7 +16,7 @@ const config = {
   deadlineHour: Number(process.env.DEADLINE_HOUR || 12),
   minPlayers: Number(process.env.MIN_PLAYERS || 15),
   // 每人費用，設 0 就不顯示
-  price: Number(process.env.PRICE_PER_PERSON || 150),
+  price: Number(process.env.PRICE_PER_PERSON || 100),
   openWeekday: Number(process.env.OPEN_WEEKDAY || 2),
   // 主辦人最早可以手動「開放」的時刻（預設週二 23:00）
   manualOpenWeekday: Number(process.env.MANUAL_OPEN_WEEKDAY || 2),
