@@ -84,8 +84,12 @@
    | `SELF_URL` | 新服務網址，例如 `https://line-signup-bot.onrender.com` |
    | `MAX_PLAYERS` | `21` |
    | `GAME_WEEKDAY` | `2` |
-   | `DEADLINE_DAYS_BEFORE` | `1` |
-   | `DEADLINE_HOUR` | `12` |
+   | `DEADLINE_DAYS_BEFORE` | `0` |
+   | `DEADLINE_HOUR` | `16` |
+   | `OPEN_WEEKDAY` | `2` |
+   | `OPEN_HOUR` | `23` |
+   | `MANUAL_OPEN_WEEKDAY` | `2` |
+   | `MANUAL_OPEN_HOUR` | `16` |
    | `TIME_ZONE` | `Asia/Taipei` |
    | `PUSH_ANNOUNCE` | `true` |
    | `QUOTA_RESERVE` | `40` |

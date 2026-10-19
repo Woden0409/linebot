@@ -14,10 +14,10 @@ const OPTIONS = {
   openWeekday: 3, openHour: 8, manualOpenWeekday: 2, manualOpenHour: 23
 };
 
-// 正式環境：週二 00:00 開放、週一 12:00 截止
+// 正式環境：比賽當天（週二）16:00 截止、同一天 23:00 開放下一場
 const LIVE = {
-  gameWeekday: 2, timeZone: 'Asia/Taipei', deadlineDaysBefore: 1, deadlineHour: 12,
-  openWeekday: 2, openHour: 0, manualOpenWeekday: 2, manualOpenHour: 0
+  gameWeekday: 2, timeZone: 'Asia/Taipei', deadlineDaysBefore: 0, deadlineHour: 16,
+  openWeekday: 2, openHour: 23, manualOpenWeekday: 2, manualOpenHour: 16
 };
 
 function freshStore() {
@@ -69,7 +69,7 @@ test('每人費用會出現在報名、名單、說明與開放公告裡', async
   assert.match(await handleText({ ...night, userId: 'admin', isAdmin: true, text: '開放' }), /💰 費用　每人 150 元/);
 
   // 截止後的最終名單
-  const closed = { ...base, store: freshStore(), cycle: resolveCycle(new Date('2026-09-21T04:00:00Z'), LIVE) };
+  const closed = { ...base, store: freshStore(), cycle: resolveCycle(new Date('2026-09-22T10:00:00Z'), LIVE) };
   await closed.store.register('g1', '2026-09-22', { userId: 'u1', name: '王小明' });
   assert.match(await handleText({ ...closed, userId: 'admin', isAdmin: true, text: '截止' }), /💰 每人 150 元/);
 });
@@ -81,46 +81,63 @@ test('費用設 0 就完全不顯示', async () => {
   assert.doesNotMatch(await handleText({ ...base, userId: 'u1', text: '幫助' }), /費用/);
 });
 
-test('正式時程：週一 12:00 截止、週二 00:00 開放下一場', () => {
-  // 週一 11:59：9/22 那場還開著
-  const before = resolveCycle(new Date('2026-09-21T03:59:00Z'), LIVE);
+test('正式時程：比賽當天 16:00 截止、同天 23:00 開放下一場', () => {
+  // 週二 15:59：9/22 那場還開著，比賽當天中午前都還能報
+  const before = resolveCycle(new Date('2026-09-22T07:59:00Z'), LIVE);
   assert.equal(before.isOpen, true);
   assert.equal(before.eventDate, '2026-09-22');
+  assert.equal(before.deadlineDate, '2026-09-22', '截止在比賽當天');
+  assert.equal(before.deadlineHour, 16);
 
-  // 週一 12:00：截止，進入空窗期，下一場是 9/29
-  const closed = resolveCycle(new Date('2026-09-21T04:00:00Z'), LIVE);
+  // 週二 16:00：截止，進入空窗期，下一場是 9/29
+  const closed = resolveCycle(new Date('2026-09-22T08:00:00Z'), LIVE);
   assert.equal(closed.isOpen, false);
   assert.equal(closed.closedEvent, '2026-09-22');
   assert.equal(closed.eventDate, '2026-09-29');
-  assert.equal(closed.openDate, '2026-09-22', '9/29 那場在 9/22（週二）開放');
-  assert.equal(closed.openHour, 0);
+  assert.equal(closed.openDate, '2026-09-22', '9/29 那場在 9/22（週二）23:00 開放');
+  assert.equal(closed.openHour, 23);
+  assert.equal(closed.canOpenEarly, true, '截止之後主辦人就能提早開放下一場');
 
-  // 週一 23:59 仍在空窗期
-  assert.equal(resolveCycle(new Date('2026-09-21T15:59:00Z'), LIVE).isOpen, false);
+  // 週二 22:59 仍在空窗期
+  assert.equal(resolveCycle(new Date('2026-09-22T14:59:00Z'), LIVE).isOpen, false);
 
-  // 週二 00:00 準時開放，空窗期總共 12 小時
-  const opened = resolveCycle(new Date('2026-09-21T16:00:00Z'), LIVE);
+  // 週二 23:00 準時開放，空窗期總共 7 小時
+  const opened = resolveCycle(new Date('2026-09-22T15:00:00Z'), LIVE);
   assert.equal(opened.isOpen, true);
   assert.equal(opened.eventDate, '2026-09-29');
 
-  // 比賽日整天、到下週一 11:59 都開著
-  assert.equal(resolveCycle(new Date('2026-09-22T06:00:00Z'), LIVE).isOpen, true);
-  assert.equal(resolveCycle(new Date('2026-09-28T03:59:00Z'), LIVE).isOpen, true);
+  // 隔天整天、到下週二 15:59 都開著
+  assert.equal(resolveCycle(new Date('2026-09-23T06:00:00Z'), LIVE).isOpen, true);
+  assert.equal(resolveCycle(new Date('2026-09-29T07:59:00Z'), LIVE).isOpen, true);
 });
 
-test('正式時程：空窗期擋報名，週二 00:00 後可報名並公告一次', async () => {
+test('正式時程：空窗期擋報名，要先公布最終名單才能開放下一場', async () => {
+  const store = freshStore();
+  const common = { store, groupId: 'g1', maxPlayers: 21, gameWeekday: 2 };
+  await store.register('g1', '2026-09-22', { userId: 'u9', name: '陳大文' });
+
+  // 週二 18:00：空窗期（16:00 截止、23:00 才自動開放）
+  const gap = { ...common, cycle: resolveCycle(new Date('2026-09-22T10:00:00Z'), LIVE) };
+  const denied = await handleText({ ...gap, userId: 'u1', text: '報名 王小明' });
+  assert.match(denied, /本週報名已截止/);
+  assert.match(denied, /開放　　2026-09-22（週二）23:00/);
+
+  // 還沒公布最終名單就想開放下一場 → 先擋下來，不然上一場名單就看不到了
+  assert.match(await handleText({ ...gap, userId: 'admin', isAdmin: true, text: '開放' }), /請先打「截止」/);
+
+  // 公布完就能提早開放，報名也進到下一場
+  assert.match(await handleText({ ...gap, userId: 'admin', isAdmin: true, text: '截止' }), /報名截止，最終名單/);
+  assert.match(await handleText({ ...gap, userId: 'admin', isAdmin: true, text: '開放' }), /排球報名開始囉/);
+  assert.match(await handleText({ ...gap, userId: 'u1', text: '報名 王小明' }), /報名成功（第 1 位）/);
+  assert.equal((await store.getEntries('g1', '2026-09-29')).length, 1);
+});
+
+test('正式時程：週二 23:00 自動開放，公告只發一次', async () => {
   const store = freshStore();
   const common = { store, groupId: 'g1', maxPlayers: 21, gameWeekday: 2 };
 
-  // 週一 20:00：空窗期
-  const gap = { ...common, cycle: resolveCycle(new Date('2026-09-21T12:00:00Z'), LIVE) };
-  const denied = await handleText({ ...gap, userId: 'u1', text: '報名 王小明' });
-  assert.match(denied, /本週報名已截止/);
-  assert.match(denied, /開放　　2026-09-22（週二）00:00/);
-  assert.match(await handleText({ ...gap, userId: 'admin', isAdmin: true, text: '開放' }), /還不能開放下一場/);
-
-  // 週二 00:30：可以報名，主辦人公告一次
-  const open = { ...common, cycle: resolveCycle(new Date('2026-09-21T16:30:00Z'), LIVE) };
+  // 週二 23:30：已自動開放
+  const open = { ...common, cycle: resolveCycle(new Date('2026-09-22T15:30:00Z'), LIVE) };
   assert.match(await handleText({ ...open, userId: 'u1', text: '報名 王小明' }), /報名成功（第 1 位）/);
   assert.match(await handleText({ ...open, userId: 'admin', isAdmin: true, text: '開放' }), /排球報名開始囉/);
   assert.match(await handleText({ ...open, userId: 'admin', isAdmin: true, text: '開放' }), /這場已經開放報名了/);
@@ -219,8 +236,10 @@ test('週二 23:00 前不能打「開放」，23:00 起可以', async () => {
   const before = { ...common, cycle: resolveCycle(new Date('2026-09-22T14:59:00Z'), OPTIONS) };
   assert.match(await handleText({ ...before, userId: 'admin', isAdmin: true, text: '開放' }), /還不能開放下一場/);
 
-  // 週二 23:00 → 可以，開的是 9/29 那場
+  // 週二 23:00 → 可以，開的是 9/29 那場（要先公布上一場的最終名單）
   const night = { ...common, cycle: resolveCycle(new Date('2026-09-22T15:00:00Z'), OPTIONS) };
+  assert.match(await handleText({ ...night, userId: 'admin', isAdmin: true, text: '開放' }), /請先打「截止」/);
+  await handleText({ ...night, userId: 'admin', isAdmin: true, text: '截止' });
   const opened = await handleText({ ...night, userId: 'admin', isAdmin: true, text: '開放' });
   assert.match(opened, /排球報名開始囉/);
   assert.match(opened, /2026-09-29（週二）/);
@@ -255,6 +274,7 @@ test('每一場只公告一次開放，連打「開放」不會洗版', async ()
 test('提前開放後再打「開放」也不會重發公告', async () => {
   const store = freshStore();
   const night = { store, groupId: 'g1', maxPlayers: 21, gameWeekday: 2, cycle: resolveCycle(new Date('2026-09-22T15:00:00Z'), OPTIONS) };
+  await handleText({ ...night, userId: 'admin', isAdmin: true, text: '截止' });
   assert.match(await handleText({ ...night, userId: 'admin', isAdmin: true, text: '開放' }), /排球報名開始囉/);
   const again = await handleText({ ...night, userId: 'admin', isAdmin: true, text: '開放' });
   assert.doesNotMatch(again, /排球報名開始囉/);
@@ -288,6 +308,7 @@ test('手動開放只影響那一個群組', async () => {
   const store = freshStore();
   const night = resolveCycle(new Date('2026-09-22T15:30:00Z'), OPTIONS); // 週二 23:30
   const common = { store, maxPlayers: 21, gameWeekday: 2, cycle: night };
+  await handleText({ ...common, groupId: 'g1', userId: 'admin', isAdmin: true, text: '截止' });
   await handleText({ ...common, groupId: 'g1', userId: 'admin', isAdmin: true, text: '開放' });
   assert.match(await handleText({ ...common, groupId: 'g1', userId: 'u1', text: '報名 A' }), /報名成功/);
   assert.match(await handleText({ ...common, groupId: 'g2', userId: 'u1', text: '報名 A' }), /本週報名已截止/);

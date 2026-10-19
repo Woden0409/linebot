@@ -39,7 +39,7 @@ const { resolveCycle } = require('../src/schedule');
 // 測試一律固定在「開放報名期間」的某個時間點，不受實際執行當天是否為空窗期影響。
 // 2026-09-10 10:00 台北（週四）→ 開放中，場次 2026-09-15。
 const OPEN_MOMENT = new Date('2026-09-10T02:00:00Z').getTime();
-const cycle = resolveCycle(new Date(OPEN_MOMENT), { gameWeekday: 2, timeZone: 'Asia/Taipei', deadlineDaysBefore: 1, deadlineHour: 12 });
+const cycle = resolveCycle(new Date(OPEN_MOMENT), { gameWeekday: 2, timeZone: 'Asia/Taipei', deadlineDaysBefore: 0, deadlineHour: 16 });
 let origin;
 
 test.before(async () => {
@@ -100,11 +100,11 @@ test('健康檢查回報目前開放的場次與截止時間', async () => {
   const body = await response.json();
   assert.equal(response.status, 200);
   // /health 用的是真實時間，所以跟「現在」算出來的週期比
-  const live = resolveCycle(new Date(), { gameWeekday: 2, timeZone: 'Asia/Taipei', deadlineDaysBefore: 1, deadlineHour: 12 });
+  const live = resolveCycle(new Date(), { gameWeekday: 2, timeZone: 'Asia/Taipei', deadlineDaysBefore: 0, deadlineHour: 16 });
   assert.equal(body.openEvent, live.eventDate);
   assert.equal(body.registrationOpen, live.isOpen);
-  assert.match(body.deadline, /12:00 Asia\/Taipei/);
-  assert.match(body.opensAt, /00:00 Asia\/Taipei/, '正式時程是週二 00:00 開放');
+  assert.match(body.deadline, /16:00 Asia\/Taipei/);
+  assert.match(body.opensAt, /23:00 Asia\/Taipei/, '正式時程是週二 23:00 開放');
   assert.ok(body.db, '應回報資料庫保活狀態');
 });
 
@@ -184,12 +184,12 @@ test('開放通知：推播一次、不重送、還沒到時間不動作', async
   const { openAndAnnounce } = require('../src/server');
   usage = 0;
 
-  // 週一 14:00 台北，截止後的空窗期
-  const early = await openAndAnnounce(new Date('2026-09-14T06:00:00Z'));
+  // 週二 18:00 台北，16:00 截止後、23:00 開放前的空窗期
+  const early = await openAndAnnounce(new Date('2026-09-15T10:00:00Z'));
   assert.match(early.skipped, /還沒到開放時間/);
 
   calls.length = 0;
-  const first = await openAndAnnounce(new Date('2026-09-14T16:00:30Z')); // 週二 00:00:30
+  const first = await openAndAnnounce(new Date('2026-09-15T15:00:30Z')); // 週二 23:00:30
   assert.equal(first.eventDate, '2026-09-22');
   assert.equal(first.results[0].pushed, true);
   assert.match(pushes()[0], /排球報名開始囉/);

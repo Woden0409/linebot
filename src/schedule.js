@@ -31,14 +31,14 @@ function reached(local, date, hour) {
 }
 
 // 每一場（比賽日 E）的報名期間是：開放時刻 ≤ 現在 < 截止時刻。
-//   截止：E 前 deadlineDaysBefore 天的 deadlineHour 點（預設週一 12:00）
-//   開放：E 之前最近一個 openWeekday 的 openHour 點（預設週三 08:00）
+//   截止：E 前 deadlineDaysBefore 天的 deadlineHour 點（預設比賽當天 16:00）
+//   開放：E 之前最近一個 openWeekday 的 openHour 點（預設上週二 23:00）
 // 截止到下一場開放之間是空窗期，不收報名，避免有人報進已結算的名單。
 // 主辦人最早可以手動「開放」的時刻：開放日之前最近一個 manualOpenWeekday 的 manualOpenHour 點
-// （預設週二 23:00，也就是比賽當晚打完球之後）。
+// （預設週二 16:00，也就是截止的那一刻，截止後就能提早開放下一場）。
 function resolveCycle(now, {
   gameWeekday, timeZone, deadlineDaysBefore, deadlineHour,
-  openWeekday = 2, openHour = 0, manualOpenWeekday = 2, manualOpenHour = 0
+  openWeekday = 2, openHour = 23, manualOpenWeekday = 2, manualOpenHour = 16
 }) {
   const local = localParts(now, timeZone);
   let ahead = gameWeekday - local.weekday;

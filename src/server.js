@@ -12,16 +12,16 @@ const config = {
   maxPlayers: Number(process.env.MAX_PLAYERS || 21),
   gameWeekday: Number(process.env.GAME_WEEKDAY || 2),
   timeZone: process.env.TIME_ZONE || 'Asia/Taipei',
-  deadlineDaysBefore: Number(process.env.DEADLINE_DAYS_BEFORE || 1),
-  deadlineHour: Number(process.env.DEADLINE_HOUR || 12),
+  deadlineDaysBefore: Number(process.env.DEADLINE_DAYS_BEFORE || 0),
+  deadlineHour: Number(process.env.DEADLINE_HOUR || 16),
   minPlayers: Number(process.env.MIN_PLAYERS || 15),
   // 每人費用，設 0 就不顯示
   price: Number(process.env.PRICE_PER_PERSON || 100),
   openWeekday: Number(process.env.OPEN_WEEKDAY || 2),
-  // 主辦人最早可以手動「開放」的時刻（預設週二 23:00）
+  // 主辦人最早可以手動「開放」的時刻（預設週二 16:00，也就是截止的那一刻）
   manualOpenWeekday: Number(process.env.MANUAL_OPEN_WEEKDAY || 2),
-  manualOpenHour: Number(process.env.MANUAL_OPEN_HOUR || 0),
-  openHour: Number(process.env.OPEN_HOUR || 0),
+  manualOpenHour: Number(process.env.MANUAL_OPEN_HOUR || 16),
+  openHour: Number(process.env.OPEN_HOUR || 23),
   taskKey: process.env.TASK_KEY,
   // 可以用「截止」「開放」的 LINE 使用者 ID，多位用逗號分隔。
   adminUserIds: String(process.env.ADMIN_USER_IDS || '').split(',').map((id) => id.trim()).filter(Boolean),
@@ -128,7 +128,7 @@ async function processEvent(event) {
   if (message) await reply(event.replyToken, message);
 }
 
-// 每週一 12:00（台北）由 cron-job.org 呼叫：鎖定名單並推播最終結果。
+// 每週二 16:00（台北）由 cron-job.org 呼叫：鎖定名單並推播最終結果。
 async function closeAndAnnounce(overrideDate, now = new Date()) {
   const cycle = resolveCycle(now, cycleOptions);
   const eventDate = overrideDate || cycle.closedEvent;

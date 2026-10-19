@@ -175,7 +175,7 @@ function finalListMessage(entries, context) {
   return `📋 報名截止，最終名單如下\n\n${list}\n\n\n${schedulePanel(context).join('\n')}`;
 }
 
-// 主辦人指令只能在規定時段用：截止時間過後才能公布名單，比賽當晚之後才能開放下一場。
+// 主辦人指令只能在規定時段用：截止時間過後才能公布名單，公布完才能開放下一場。
 async function adminCommand(input, { groupId, store, scheduled, base }) {
   const cycle = await effectiveCycle(scheduled, store, groupId);
   const context = { ...base, cycle };
@@ -184,7 +184,9 @@ async function adminCommand(input, { groupId, store, scheduled, base }) {
     if (cycle.isOpen) {
       return `⏰ 還沒到截止時間，現在不能截止。\n\n${describeDeadline(cycle)} 會自動截止，\n之後再打「截止」公布最終名單。`;
     }
-    return finalListMessage(await store.getEntries(groupId, cycle.closedEvent), context);
+    const entries = await store.getEntries(groupId, cycle.closedEvent);
+    await store.markAnnounced(groupId, cycle.closedEvent, 'close');
+    return finalListMessage(entries, context);
   }
 
   // 每一場只公告一次，避免連打「開放」把群組洗版。
@@ -204,6 +206,15 @@ async function adminCommand(input, { groupId, store, scheduled, base }) {
         '',
         `最早　${describeManualOpen(cycle)} 起可以打「開放」`,
         `自動　${describeOpen(cycle)} 會自動開放`
+      ].join('\n');
+    }
+    // 開放下一場之後就看不到上一場的名單了，所以要先打「截止」公布最終名單。
+    if (!await store.wasAnnounced(groupId, cycle.closedEvent, 'close')) {
+      return [
+        `📋 請先打「截止」公布 ${formatEventDate(cycle.closedEvent, base.gameWeekday)}這場的最終名單，`,
+        '再打「開放」開放下一場。',
+        '',
+        `（${describeOpen(cycle)} 也會自動開放）`
       ].join('\n');
     }
     await store.markAnnounced(groupId, cycle.eventDate, 'open');

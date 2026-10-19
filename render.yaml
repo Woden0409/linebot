@@ -12,9 +12,17 @@ services:
       - key: GAME_WEEKDAY
         value: "2"
       - key: DEADLINE_DAYS_BEFORE
-        value: "1"
+        value: "0"
       - key: DEADLINE_HOUR
-        value: "12"
+        value: "16"
+      - key: OPEN_WEEKDAY
+        value: "2"
+      - key: OPEN_HOUR
+        value: "23"
+      - key: MANUAL_OPEN_WEEKDAY
+        value: "2"
+      - key: MANUAL_OPEN_HOUR
+        value: "16"
       - key: TIME_ZONE
         value: Asia/Taipei
       - key: PUSH_ANNOUNCE

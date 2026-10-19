@@ -1,6 +1,6 @@
 name: weekly-close
 
-# 備援用。主要由 cron-job.org 在週一 12:00 準時結算。
+# 備援用。主要由 cron-job.org 在週二 16:00 準時結算。
 # GitHub 排程實測曾延遲 5.5 小時（排 12:05、17:41 才跑），不能當主要排程。
 # 端點是冪等的：cron-job.org 已結算過的話，這裡跑到只會回「已結算過」，不會重複推播；
 # 只有 cron-job.org 失效時，這裡才會（晚一點）補送最終名單。
@@ -8,7 +8,7 @@ name: weekly-close
 # 需要 repo variable SERVICE_URL 與 repo secret TASK_KEY。
 on:
   schedule:
-    - cron: '5 4 * * 1'
+    - cron: '5 8 * * 2'
   workflow_dispatch:
     inputs:
       date:
