@@ -231,6 +231,9 @@ const server = http.createServer((request, response) => {
       openEvent: cycle.eventDate,
       opensAt: `${cycle.openDate} ${String(cycle.openHour).padStart(2, '0')}:00 ${config.timeZone}`,
       deadline: `${cycle.deadlineDate} ${String(cycle.deadlineHour).padStart(2, '0')}:00 ${config.timeZone}`,
+      // 報上目前生效的人數與費用，改完設定可以直接從這裡確認有沒有吃到。
+      players: { min: config.minPlayers, max: config.maxPlayers },
+      price: config.price,
       db: dbHealth.lastOkAt
         ? { lastOkAt: dbHealth.lastOkAt, ...(dbHealth.lastError ? { lastError: dbHealth.lastError } : {}) }
         : { lastError: dbHealth.lastError || 'not checked yet' }
