@@ -82,7 +82,7 @@
    | `SUPABASE_URL` | 第 1 步的新專案 |
    | `SUPABASE_SERVICE_ROLE_KEY` | 第 1 步的新 secret key |
    | `SELF_URL` | 新服務網址，例如 `https://line-signup-bot.onrender.com` |
-   | `MAX_PLAYERS` | `21` |
+   | `MAX_PLAYERS` | `18` |
    | `GAME_WEEKDAY` | `2` |
    | `DEADLINE_DAYS_BEFORE` | `0` |
    | `DEADLINE_HOUR` | `16` |

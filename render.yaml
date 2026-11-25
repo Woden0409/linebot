@@ -8,7 +8,7 @@ services:
     healthCheckPath: /health
     envVars:
       - key: MAX_PLAYERS
-        value: "21"
+        value: "18"
       - key: GAME_WEEKDAY
         value: "2"
       - key: DEADLINE_DAYS_BEFORE

@@ -9,7 +9,7 @@ const config = {
   port: Number(process.env.PORT || 3000),
   channelSecret: process.env.LINE_CHANNEL_SECRET,
   accessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-  maxPlayers: Number(process.env.MAX_PLAYERS || 21),
+  maxPlayers: Number(process.env.MAX_PLAYERS || 18),
   gameWeekday: Number(process.env.GAME_WEEKDAY || 2),
   timeZone: process.env.TIME_ZONE || 'Asia/Taipei',
   deadlineDaysBefore: Number(process.env.DEADLINE_DAYS_BEFORE || 0),
